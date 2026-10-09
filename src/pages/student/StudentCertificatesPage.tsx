@@ -50,14 +50,14 @@ export const StudentCertificatesPage: React.FC = () => {
     <div className="space-y-6">
       {/* Unified PageHeader */}
       <PageHeader
-        title="Institutional Certificates"
-        description="Digitally verifiable credentials of collegiate participation, excellence, and hackathon achievement."
-        category="Accredited Credentials"
-        badge={`${filtered.length} Credentials`}
+        title="College Certificates & Achievements"
+        description="View and download certificates of college hackathon participation and achievements."
+        category="Student Achievements"
+        badge={`${filtered.length} Certificates`}
         actions={
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-semibold">
-            <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Controller Verified</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-800 font-semibold">
+            <Award className="w-4 h-4 text-blue-600" />
+            <span>College Records</span>
           </div>
         }
       />
@@ -159,7 +159,7 @@ export const StudentCertificatesPage: React.FC = () => {
                     size="sm"
                     leftIcon={<QrCode className="w-3.5 h-3.5" />}
                   >
-                    View & Verify
+                    View Certificate
                   </Button>
                 </div>
               </div>
@@ -173,7 +173,7 @@ export const StudentCertificatesPage: React.FC = () => {
         <Modal
           isOpen={Boolean(selectedCert)}
           onClose={() => setSelectedCert(null)}
-          title="Digital Certificate Verification"
+          title="Certificate Preview"
           maxWidth="2xl"
         >
           <div className="p-8 sm:p-10 border-4 border-double border-amber-300 rounded-xl bg-gradient-to-b from-amber-50/40 via-white to-amber-50/20 text-center space-y-4 my-2 shadow-inner">
@@ -215,9 +215,9 @@ export const StudentCertificatesPage: React.FC = () => {
               </div>
 
               <div className="text-right">
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 mb-1">
-                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                  Verified Document
+                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 mb-1">
+                  <CheckCircle2 className="w-3 h-3 text-blue-600" />
+                  Certificate Record
                 </span>
                 <p className="font-mono text-xs font-bold text-slate-800">{selectedCert.verificationCode}</p>
                 <p className="text-[10px] text-slate-400">Issue Date: {selectedCert.issueDate}</p>

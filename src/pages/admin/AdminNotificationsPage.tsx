@@ -35,7 +35,7 @@ export const AdminNotificationsPage: React.FC = () => {
   const presets = [
     {
       title: 'Registration Closing Tomorrow',
-      message: 'AI Nexus 2026 registration closes tomorrow. Confirm your registration details before 11:59 PM.',
+      message: 'College hackathon registration closes tomorrow. Confirm your registration details before 11:59 PM.',
       category: 'DEADLINE' as const,
       isImportant: true
     },
@@ -149,7 +149,7 @@ export const AdminNotificationsPage: React.FC = () => {
         <form onSubmit={handleSendBroadcast} className="space-y-4">
           <Input
             label="Notification Title"
-            placeholder="e.g. AI Nexus 2026 registration closes tomorrow"
+            placeholder="e.g. Hackathon registration closes tomorrow at 11:59 PM"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required

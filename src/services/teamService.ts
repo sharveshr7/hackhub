@@ -68,7 +68,7 @@ export const teamService = {
 
     // 2. Generate unique 6-character team invite code
     const randCode = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const code = `NEXUS-${randCode}`;
+    const code = `TEAM-${randCode}`;
     const teamId = `team_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
 
     const leaderMember: TeamMember = {

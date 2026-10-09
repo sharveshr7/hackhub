@@ -57,7 +57,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
   const [eligibility, setEligibility] = useState<string[]>([
     'Currently enrolled KIT undergraduate and postgraduate engineering students',
     'Open to B.E., B.Tech, and M.Tech across all departments',
-    'Valid College ID card mandatory at entry gate'
+    'Valid College ID card mandatory for check-in verification'
   ]);
   const [newEligibility, setNewEligibility] = useState('');
 
@@ -70,17 +70,17 @@ export const AdminCreateHackathonPage: React.FC = () => {
   const [rules, setRules] = useState<string[]>([
     'All code and solution artifacts must be authored during the active sprint hours.',
     'Teams must maintain 2 to 4 registered members throughout the competition.',
-    'Third-party libraries and APIs are permitted; plagiarism results in immediate disqualification.',
+    'Third-party libraries and APIs are permitted; original solution development is required.',
     'Final prototype demonstrations must be uploaded before the submission deadline.'
   ]);
   const [newRule, setNewRule] = useState('');
 
-  // 6. Prizes
-  const [prizePool, setPrizePool] = useState('₹60,000');
+  // 6. Prizes & Awards
+  const [prizePool, setPrizePool] = useState('Department Trophies & Merit Certificates');
   const [prizes, setPrizes] = useState<Prize[]>([
-    { title: 'Grand Winner (1st Place)', reward: '₹35,000 + Winner Trophy + Citations' },
-    { title: 'First Runner Up (2nd Place)', reward: '₹20,000 + Medals + Certificates' },
-    { title: 'Best Clean Architecture Track', reward: '₹5,000 + Departmental Special Award' }
+    { title: 'Grand Winner (1st Place)', reward: 'Winner Trophy & Merit Certificates' },
+    { title: 'First Runner Up (2nd Place)', reward: 'Medals & Merit Certificates' },
+    { title: 'Best Technical Architecture Track', reward: 'Departmental Citation & Special Award' }
   ]);
 
   // 7. Evaluation
@@ -96,8 +96,8 @@ export const AdminCreateHackathonPage: React.FC = () => {
       id: 'ps-cf-1',
       title: 'Automated Student Attendance & Hall Ticket Generator',
       domain: 'Full Stack & Security',
-      description: 'Build a secure, tamper-proof QR hall ticket verification web portal with real-time check-in syncing.',
-      expectedOutcome: 'Mobile web scanner with offline caching capabilities and cryptographic signature validation.'
+      description: 'Build a secure QR student verification web portal with real-time check-in syncing.',
+      expectedOutcome: 'Mobile web scanner with offline caching capabilities and signature validation.'
     },
     {
       id: 'ps-cf-2',
@@ -204,10 +204,10 @@ export const AdminCreateHackathonPage: React.FC = () => {
               <span className="text-slate-400">Autosaved at {lastSaved}</span>
             </div>
             <h1 className="text-2xl font-bold font-display text-navy-950">
-              Create College Hackathon
+              Post College Hackathon
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">
-              Structured multi-section configuration for official campus tech events.
+              Define eligibility, registration deadlines, team requirements, and submission deadlines for student participation.
             </p>
           </div>
 
@@ -226,7 +226,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
               size="sm"
               leftIcon={<Sparkles className="w-3.5 h-3.5" />}
             >
-              Publish Event
+              Publish Hackathon
             </Button>
           </div>
         </div>
@@ -287,7 +287,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
               />
             </div>
             <Input
-              label="Host Department / Organizer"
+              label="Host Department / Faculty Coordinator"
               value={organizer}
               onChange={(e) => setOrganizer(e.target.value)}
               required
@@ -508,10 +508,10 @@ export const AdminCreateHackathonPage: React.FC = () => {
               6. Prize Pool & Rewards
             </h2>
             <Input
-              label="Total Cumulative Prize Pool"
+              label="Awards & Recognition Summary"
               value={prizePool}
               onChange={(e) => setPrizePool(e.target.value)}
-              placeholder="e.g. ₹50,000"
+              placeholder="e.g. Merit Certificates & Department Trophy"
             />
             <div className="space-y-3">
               {prizes.map((p, idx) => (
@@ -526,7 +526,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
                     }}
                   />
                   <Input
-                    label="Cash Reward / Perks"
+                    label="Award / Recognition / Perks"
                     value={p.reward}
                     onChange={(e) => {
                       const updated = [...prizes];
@@ -541,9 +541,9 @@ export const AdminCreateHackathonPage: React.FC = () => {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setPrizes([...prizes, { title: 'Special Recognition Track', reward: '₹5,000 + Certificate' }])}
+              onClick={() => setPrizes([...prizes, { title: 'Special Recognition Track', reward: 'Commendation Certificate' }])}
             >
-              + Add Prize Tier
+              + Add Award / Recognition Tier
             </Button>
           </div>
         )}

@@ -374,7 +374,7 @@ export const StudentLayout: React.FC = () => {
       </div>
 
       <footer className="bg-white border-t border-slate-200 py-6 text-center text-xs text-slate-400">
-        <p>KalaignarKarunanidhi Institute Of Technology • Student Hackathon Operations & Verification Hub</p>
+        <p>KalaignarKarunanidhi Institute Of Technology • Student Hackathon Participation Management System</p>
       </footer>
     </div>
   );

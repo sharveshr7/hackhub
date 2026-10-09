@@ -143,7 +143,7 @@ export const AdminHackathonsListPage: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by title, organizer, venue..."
+            placeholder="Search by title, department, venue..."
             className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-600 bg-white"
           />
         </div>
@@ -404,7 +404,7 @@ export const AdminHackathonsListPage: React.FC = () => {
                         setNewAttendanceCode(h.attendanceCode || '');
                       }}
                       className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                      title="Attendance Gate"
+                      title="Attendance Check-in"
                     >
                       <QrCode className="w-4 h-4" />
                     </button>
@@ -435,24 +435,24 @@ export const AdminHackathonsListPage: React.FC = () => {
         isLoading={isLoading}
       />
 
-      {/* Attendance Gate Modal */}
+      {/* Attendance Check-in Modal */}
       {attendanceTarget && (
         <Modal
           isOpen={Boolean(attendanceTarget)}
           onClose={() => setAttendanceTarget(null)}
-          title={`Venue Check-in Code: ${attendanceTarget.title}`}
+          title={`Check-in Code: ${attendanceTarget.title}`}
           maxWidth="md"
         >
           <div className="space-y-4 py-2 text-xs">
             <p className="text-slate-600">
-              Students at the college registration desk must enter this code in their portal to verify physical presence.
+              Students must enter this passcode in their portal to verify attendance for this hackathon.
             </p>
 
             <Input
-              label="Venue Check-in Security Code"
+              label="Check-in Security Code"
               value={newAttendanceCode}
               onChange={(e) => setNewAttendanceCode(e.target.value.toUpperCase())}
-              placeholder="e.g. NEXUS26"
+              placeholder="e.g. KIT26"
             />
 
             <div className="flex justify-between items-center pt-3 border-t border-slate-100">
@@ -462,7 +462,7 @@ export const AdminHackathonsListPage: React.FC = () => {
                 onClick={() => handleToggleAttendance(false)}
                 isLoading={isLoading}
               >
-                Close Attendance Gate
+                Close Check-in
               </Button>
               <Button
                 variant="primary"
@@ -470,7 +470,7 @@ export const AdminHackathonsListPage: React.FC = () => {
                 onClick={() => handleToggleAttendance(true)}
                 isLoading={isLoading}
               >
-                Save & Open Gate
+                Save & Open Check-in
               </Button>
             </div>
           </div>

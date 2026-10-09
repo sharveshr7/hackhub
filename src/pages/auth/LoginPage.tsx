@@ -23,7 +23,7 @@ export const LoginPage: React.FC = () => {
           <p className="mt-2 text-xs text-slate-500 max-w-sm mx-auto">
             KalaignarKarunanidhi Institute Of Technology • Autonomous
             <br />
-            Collegiate Hackathon Management & Monitoring System
+            College Hackathon Posting, Monitoring & Student Participation Management System
           </p>
 
           {/* Primary Action Buttons */}
@@ -78,10 +78,10 @@ export const LoginPage: React.FC = () => {
             <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
               <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5 mb-1">
                 <Shield className="w-3.5 h-3.5 text-navy-800" />
-                <span>Faculty & Convenor</span>
+                <span>Faculty / Admin</span>
               </div>
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                Post challenges, supervise student teams, evaluate submissions & analytics.
+                Post college hackathons, monitor student participation, review submissions, and record results.
               </p>
             </div>
           </div>

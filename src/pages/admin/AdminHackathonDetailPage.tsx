@@ -43,7 +43,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
     'OVERVIEW' | 'REGISTRATIONS' | 'TEAMS' | 'SUBMISSIONS' | 'ATTENDANCE' | 'ANNOUNCEMENTS' | 'SETTINGS'
   >('OVERVIEW');
 
-  const [attendanceCode, setAttendanceCode] = useState(hackathon?.attendanceCode || 'NEXUS26');
+  const [attendanceCode, setAttendanceCode] = useState(hackathon?.attendanceCode || 'KIT26');
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -80,7 +80,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
     setIsLoading(true);
     try {
       await hackathonService.toggleAttendance(hackathon.id, isOpen, attendanceCode);
-      addToast(`Venue attendance gate is now ${isOpen ? 'OPEN' : 'CLOSED'}.`, 'success');
+      addToast(`Attendance check-in is now ${isOpen ? 'OPEN' : 'CLOSED'}.`, 'success');
       setIsAttendanceModalOpen(false);
     } catch (err: any) {
       addToast(err.message, 'error');
@@ -135,7 +135,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
               size="sm"
               leftIcon={<QrCode className="w-3.5 h-3.5" />}
             >
-              Gate Code ({hackathon.attendanceCode || 'NEXUS26'})
+              Check-in Code ({hackathon.attendanceCode || 'KIT26'})
             </Button>
           </div>
         </div>
@@ -360,9 +360,9 @@ export const AdminHackathonDetailPage: React.FC = () => {
         {/* Tab 5: Attendance */}
         {activeTab === 'ATTENDANCE' && (
           <div className="p-6 space-y-4 max-w-xl">
-            <h3 className="text-sm font-bold text-navy-950">Physical Venue Attendance Desk</h3>
+            <h3 className="text-sm font-bold text-navy-950">Participant Check-in Desk</h3>
             <p className="text-xs text-slate-500">
-              Control the security check-in gate for students arriving at the physical campus venue.
+              Manage the check-in passcode for participating students.
             </p>
 
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
@@ -372,12 +372,12 @@ export const AdminHackathonDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Active Check-in Code:</span>
-                <span className="font-mono font-bold text-navy-950">{hackathon.attendanceCode || 'NEXUS26'}</span>
+                <span className="font-mono font-bold text-navy-950">{hackathon.attendanceCode || 'KIT26'}</span>
               </div>
             </div>
 
             <Button onClick={() => setIsAttendanceModalOpen(true)} variant="primary" size="sm">
-              Configure Gate Code
+              Configure Check-in Code
             </Button>
           </div>
         )}
@@ -422,17 +422,17 @@ export const AdminHackathonDetailPage: React.FC = () => {
         )}
       </div>
 
-      {/* Attendance Gate Modal */}
+      {/* Attendance Check-in Modal */}
       {isAttendanceModalOpen && (
         <Modal
           isOpen={isAttendanceModalOpen}
           onClose={() => setIsAttendanceModalOpen(false)}
-          title="Physical Check-in Code Configuration"
+          title="Check-in Code Configuration"
           maxWidth="md"
         >
           <div className="space-y-4 py-2 text-xs">
             <p className="text-slate-600">
-              Update the verification check-in code announced at the registration counter for {hackathon.title}.
+              Update the verification check-in code announced for {hackathon.title}.
             </p>
 
             <Input
@@ -448,7 +448,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
                 onClick={() => handleToggleAttendance(false)}
                 isLoading={isLoading}
               >
-                Close Gate
+                Close Check-in
               </Button>
               <Button
                 variant="primary"
@@ -456,7 +456,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
                 onClick={() => handleToggleAttendance(true)}
                 isLoading={isLoading}
               >
-                Save & Open Gate
+                Save & Open Check-in
               </Button>
             </div>
           </div>

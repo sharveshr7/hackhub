@@ -135,9 +135,9 @@ export const AdminAttendancePage: React.FC = () => {
     <div className="space-y-6">
       {/* Unified PageHeader */}
       <PageHeader
-        title="Attendance Operations & Venue Check-in"
-        description="Audit venue verification passcodes, track participant arrival percentages, and proctor attendance desks."
-        category="Venue Operations"
+        title="Participant Check-in & Attendance Monitoring"
+        description="Audit check-in passcodes, monitor student check-in status, and view attendance records."
+        category="Participation Monitoring"
         badge={`${totalPresent} / ${totalRegistered} Present`}
         actions={
           <Button
@@ -209,7 +209,7 @@ export const AdminAttendancePage: React.FC = () => {
       {/* Event-wise Attendance Cards (Section 27: Hackathon, Registered, Present, Absent, Attendance %) */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-navy-950 font-display">Event Attendance Gates & Passcodes</h2>
+          <h2 className="text-sm font-bold text-navy-950 font-display">Hackathon Check-in Passcodes & Attendance</h2>
           <span className="text-xs text-slate-500">Live operational status</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -237,7 +237,7 @@ export const AdminAttendancePage: React.FC = () => {
                         : 'bg-slate-100 text-slate-600 border border-slate-200'
                     }`}
                   >
-                    {hackathon.attendanceOpen ? 'Gate Open' : 'Gate Closed'}
+                    {hackathon.attendanceOpen ? 'Check-in Open' : 'Check-in Closed'}
                   </span>
                 </div>
 
@@ -274,7 +274,7 @@ export const AdminAttendancePage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Passcode & Gate Control */}
+              {/* Passcode & Check-in Control */}
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-medium">Passcode:</span>
@@ -298,7 +298,7 @@ export const AdminAttendancePage: React.FC = () => {
                   onClick={() => handleToggleAttendanceOpen(hackathon.id, Boolean(hackathon.attendanceOpen))}
                   className="text-[10px] py-1 px-2.5 h-auto"
                 >
-                  {hackathon.attendanceOpen ? 'Close Gate' : 'Open Gate'}
+                  {hackathon.attendanceOpen ? 'Disable Check-in' : 'Enable Check-in'}
                 </Button>
               </div>
             </div>

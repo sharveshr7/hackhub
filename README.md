@@ -1,19 +1,30 @@
-# NexusHacks — Official College Hackathon Management Portal
+# HackHub — College Hackathon Posting, Monitoring & Student Participation Management System
 
-A complete, production-grade **College Hackathon Management Portal** built for university ecosystems with strict role-based separation between **STUDENTS** and **ADMINS / CONVENORS**.
+A centralized college platform where faculty publish hackathon opportunities and monitor participation while students discover competitions, manage registrations, collaborate with teams, track deadlines, and showcase their project submissions.
+
+HackHub is an institutional platform for college faculty to post hackathons and monitor participation, and for students to discover, participate in, and track those opportunities. HackHub is **not** a hackathon organiser, event-management company, or external hackathon hosting platform.
 
 ---
 
 ## 🏛️ System Overview
 
-NexusHacks provides an institutional campus platform that supervises the entire lifecycle of collegiate hackathons:
-1. **Academic Hackathon Discovery & Registration** (Multi-step verification, rule acceptance, and registration pass generation)
-2. **Squad & Team Management** (Forming teams, invite codes, member limits, cross-department rules)
-3. **Attendance & Venue Gate Check-in** (Proctored secret code check-in to prevent unauthorized submissions)
-4. **Project Submissions & Version Locking** (GitHub repository, live demo, presentation deck, report uploads, drafts, and permanent lock)
-5. **Jury Evaluation & Score Rubrics** (Numerical scoring, jury feedback, award placement)
-6. **Verified Institutional Certificates** (Downloadable and printable credentials with verification codes)
-7. **Executive Admin Console & Analytics** (Interactive Recharts graphs, participant rosters, announcement bulletins, push notification triggers, and CSV exports)
+HackHub manages collegiate hackathon participation lifecycle across institutional roles:
+
+### Faculty / Admin
+- **Post College Hackathons**: Create, edit, publish, and manage hackathon announcements and opportunities.
+- **Define Guidelines**: Configure eligibility, registration deadlines, team requirements, and submission deadlines.
+- **Participation Monitoring**: Monitor student registrations, team formations, and student turnout.
+- **Submissions & Milestones**: Track project deliverables, repository links, documentation, and deadlines.
+- **Evaluation & Results**: Record evaluation scores, feedback, rankings, and student achievements.
+- **Bulletins & Reminders**: Issue announcements and deadline notifications to registered students.
+
+### Students
+- **Opportunity Discovery**: Discover hackathons posted by their college departments.
+- **Eligibility & Deadlines**: Review requirements, problem statements, and key milestones.
+- **Registrations & Teams**: Register for hackathons and form or join student teams.
+- **Progress Tracking**: Track registration status, deadlines, and milestone progress.
+- **Project Submissions**: Submit repository links, live demos, decks, and deliverables where enabled.
+- **Results & Certificates**: View evaluation results, achievements, and downloadable certificates.
 
 ---
 
@@ -107,21 +118,24 @@ src/
 
 ---
 
-## 🔒 Strict Hackathon Student Workflow
+## 🔄 Institutional User Journeys
 
-The portal strictly enforces the collegiate hackathon journey:
+The platform supports participation management across distinct institutional roles:
+
+### Faculty Journey
 ```
-LOGIN ➔ BROWSE HACKATHON ➔ VIEW DETAILS ➔ REGISTER (4-Step Rules Acceptance) 
-  ➔ TEAM CREATION / JOIN (Min 2, Max 4) ➔ REGISTRATION PASS GENERATED ➔ REMINDERS 
-  ➔ EVENT START ➔ VENUE ATTENDANCE CHECK-IN ➔ PROBLEM STATEMENT SELECTION 
-  ➔ PROJECT SPRINT ➔ SUBMISSION (Save Draft / Confirm Lock) 
-  ➔ JURY EVALUATION ➔ RESULTS ➔ VERIFIED CERTIFICATES
+Sign In ➔ Post Hackathon ➔ Publish ➔ Monitor Participation ➔ Review Submissions ➔ Record Results
 ```
 
-- **Registration Gate**: If registration is closed or deadline passed, registration is locked.
-- **Team Requirement**: Submission is prohibited until team size matches hackathon rules (e.g. min 2 members).
-- **Venue Attendance**: Students cannot submit unless venue check-in code has been confirmed.
-- **Permanent Lock**: After final submission confirmation, the project is frozen for academic review.
+### Student Journey
+```
+Sign In ➔ Explore Hackathons ➔ Register ➔ Participate ➔ Track Progress ➔ Submit Project ➔ View Results
+```
+
+- **Deadline Control**: If registration deadline has passed, registration is closed.
+- **Team Rules**: Submissions respect team size configurations defined by faculty.
+- **Participation Check-in**: Faculty can activate check-in passcodes for arrival tracking.
+- **Project Locking**: After final submission confirmation, the deliverables are locked for faculty evaluation.
 
 ---
 

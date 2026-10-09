@@ -104,11 +104,11 @@ export const PublicLayout: React.FC = () => {
                 <span className="font-display font-bold text-lg text-white">HackHub</span>
               </div>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                The centralized campus hackathon, code marathon, and technical innovation management system for students, faculties, and industry mentors.
+                College Hackathon Posting, Monitoring & Student Participation Management System. A centralized institutional platform for faculty posting and student participation tracking.
               </p>
-              <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
+              <div className="flex items-center gap-1.5 text-xs text-cyan-400 font-medium">
                 <ShieldCheck className="w-4 h-4" />
-                <span>Accredited Academic Platform</span>
+                <span>College Participation Management System</span>
               </div>
             </div>
 
@@ -118,8 +118,8 @@ export const PublicLayout: React.FC = () => {
               <ul className="space-y-2.5 text-xs">
                 <li><Link to="/hackathons" className="hover:text-cyan-400 transition-colors">Browse Hackathons</Link></li>
                 <li><Link to="/student-login" className="hover:text-cyan-400 transition-colors">Student Sign-In</Link></li>
-                <li><Link to="/admin/login" className="hover:text-cyan-400 transition-colors">Faculty & Convenor Portal</Link></li>
-                <li><a href="/#how-it-works" className="hover:text-cyan-400 transition-colors">Hackathon Workflow</a></li>
+                <li><Link to="/admin/login" className="hover:text-cyan-400 transition-colors">Faculty / Admin Portal</Link></li>
+                <li><a href="/#how-it-works" className="hover:text-cyan-400 transition-colors">Participation Workflow</a></li>
               </ul>
             </div>
 
@@ -147,7 +147,7 @@ export const PublicLayout: React.FC = () => {
               </p>
               <div className="flex items-center gap-2">
                 <Award className="w-4 h-4 text-cyan-400" />
-                <span className="text-[11px] text-slate-300 font-medium">Annual Innovation Cup 2026</span>
+                <span className="text-[11px] text-slate-300 font-medium">College Hackathon Portal</span>
               </div>
             </div>
           </div>

@@ -81,7 +81,7 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Attendance Collection: Students can check in with gate code; cannot modify arbitrarily afterwards
+    // Attendance Collection: Students can check in with check-in passcode; cannot modify arbitrarily afterwards
     match /attendance/{attendanceId} {
       allow read: if isAuthenticated() && (
         resource.data.studentId == request.auth.uid || isAdmin()
@@ -109,7 +109,7 @@ service cloud.firestore {
       allow create: if isAuthenticated();
     }
 
-    // Certificates Collection: Public read for diploma verification; only admins can issue
+    // Certificates Collection: Public read for certificate verification; only admins can issue
     match /certificates/{certificateId} {
       allow read: if true;
       allow write: if isAdmin();

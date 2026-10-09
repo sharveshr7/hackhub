@@ -225,7 +225,7 @@ export const HackathonDetailsPage: React.FC = () => {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-3xl py-4 border-t border-white/10 text-xs">
             <div>
-              <span className="text-slate-400 block text-[11px] uppercase font-semibold">Organizer</span>
+              <span className="text-slate-400 block text-[11px] uppercase font-semibold">Host Department</span>
               <span className="text-white font-medium mt-0.5 block truncate">{hackathon.organizer}</span>
             </div>
             <div>
@@ -850,7 +850,7 @@ export const HackathonDetailsPage: React.FC = () => {
                   <span className="font-bold text-slate-900">{hackathon.title}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Organizer:</span>
+                  <span className="text-slate-500">Host Department:</span>
                   <span className="font-semibold text-slate-800">{hackathon.organizer}</span>
                 </div>
                 <div className="flex justify-between">

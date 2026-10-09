@@ -40,12 +40,12 @@ export const attendanceService = {
     const hackathon = hSnap.data() as Hackathon;
 
     if (!hackathon.attendanceOpen) {
-      return { success: false, message: 'Venue check-in gate is currently CLOSED by the convenor desk.' };
+      return { success: false, message: 'Check-in is currently CLOSED by the coordinator.' };
     }
 
-    const expectedCode = (hackathon.attendanceCode || 'NEXUS26').trim().toUpperCase();
+    const expectedCode = (hackathon.attendanceCode || 'KIT26').trim().toUpperCase();
     if (code.trim().toUpperCase() !== expectedCode) {
-      return { success: false, message: 'Invalid attendance code. Please check venue screen display.' };
+      return { success: false, message: 'Invalid check-in code. Please verify the code announced by coordinators.' };
     }
 
     // 2. Prevent duplicate check-in

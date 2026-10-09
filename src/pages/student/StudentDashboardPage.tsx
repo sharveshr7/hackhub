@@ -436,7 +436,7 @@ export const StudentDashboardPage: React.FC = () => {
               {achievementsCount}
             </div>
             <p className="text-[11px] text-purple-600 font-semibold mt-0.5 truncate">
-              {myCertificates.length} credentials
+              {myCertificates.length} certificates
             </p>
           </div>
           <Link
@@ -495,7 +495,7 @@ export const StudentDashboardPage: React.FC = () => {
                         {part.hackathon?.title || 'Hackathon Event'}
                       </h3>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {part.hackathon?.organizer || 'KalaignarKarunanidhi Institute Of Technology'}
+                        {part.hackathon?.organizer || 'College Department'}
                       </p>
                     </div>
                     <span
@@ -788,7 +788,7 @@ export const StudentDashboardPage: React.FC = () => {
               <p className="text-xs font-bold text-slate-900 group-hover:text-purple-600 transition-colors truncate">
                 Certificates
               </p>
-              <p className="text-[10px] text-slate-400 truncate">{myCertificates.length} Verified</p>
+              <p className="text-[10px] text-slate-400 truncate">{myCertificates.length} Records</p>
             </div>
           </Link>
         </div>
@@ -799,7 +799,7 @@ export const StudentDashboardPage: React.FC = () => {
         <Modal
           isOpen={isAttendanceModalOpen}
           onClose={() => setIsAttendanceModalOpen(false)}
-          title="Campus Desk Check-in & Attendance Verification"
+          title="Participant Check-in & Attendance Verification"
           maxWidth="md"
         >
           <form onSubmit={handleMarkAttendance} className="space-y-4">

@@ -287,7 +287,7 @@ export const AdminLayout: React.FC = () => {
                   KalaignarKarunanidhi Institute Of Technology
                 </h2>
                 <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                  Directorate of Technical Innovation • Hackathon Control Center
+                  Faculty & Academic Hackathon Administration Portal
                 </p>
               </div>
             </div>

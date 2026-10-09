@@ -170,7 +170,7 @@ export const StudentProfilePage: React.FC = () => {
               <span className="font-bold text-slate-900 text-sm">{studentRegistrations.length}</span>
             </div>
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-              <span className="text-slate-500">Verified Certificates</span>
+              <span className="text-slate-500">Certificates & Awards</span>
               <span className="font-bold text-cyan-600 text-sm">{studentCertificates.length}</span>
             </div>
             <div className="flex items-center justify-between pb-2 border-b border-slate-100">
@@ -179,7 +179,7 @@ export const StudentProfilePage: React.FC = () => {
             </div>
           </div>
           <div className="mt-4 p-3 bg-blue-50 rounded-xl border border-blue-100 text-[11px] text-blue-800 leading-relaxed">
-            Attendance and certificate data synced directly with the College Examination Controller.
+            Attendance and participation records managed through the department coordinator.
           </div>
         </div>
       </div>
@@ -189,10 +189,10 @@ export const StudentProfilePage: React.FC = () => {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Award className="w-5 h-5 text-amber-500" />
-            <h3 className="text-base font-bold text-slate-900">Institutional Certificates</h3>
+            <h3 className="text-base font-bold text-slate-900">College Certificates & Records</h3>
           </div>
           <span className="text-xs text-slate-400 font-medium">
-            Digitally Signed by Dean of Academics
+            Issued by Department Faculty & Convenors
           </span>
         </div>
 
@@ -310,7 +310,7 @@ export const StudentProfilePage: React.FC = () => {
         <Modal
           isOpen={Boolean(selectedCert)}
           onClose={() => setSelectedCert(null)}
-          title="Official Verified Certificate"
+          title="College Certificate Preview"
           maxWidth="2xl"
         >
           <div className="p-8 border-4 border-double border-amber-300 rounded-xl bg-gradient-to-b from-amber-50/50 to-white text-center space-y-4 my-2">

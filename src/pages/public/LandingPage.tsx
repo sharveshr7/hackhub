@@ -29,6 +29,9 @@ import {
 export const LandingPage: React.FC = () => {
   const hackathons = useAppStore((state) => state.hackathons);
   const announcements = useAppStore((state) => state.announcements);
+  const registrations = useAppStore((state) => state.registrations);
+  const teams = useAppStore((state) => state.teams);
+  const submissions = useAppStore((state) => state.submissions);
 
   const featuredHackathon =
     hackathons.find((h) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN') || hackathons[0];
@@ -41,66 +44,65 @@ export const LandingPage: React.FC = () => {
     )
     .slice(0, 3);
 
-  // 6-stage lifecycle: Post → Discover → Participate → Monitor → Submit → Evaluate → Achieve
+  // College hackathon lifecycle: Post → Discover → Form Teams → Monitor → Submit → Record Results
   const howItWorksSteps = [
     {
       num: '01',
       title: 'Post & Publish',
-      desc: 'Faculty coordinators create and publish hackathons, problem statements, collegiate eligibility criteria, and timeline deadlines.'
+      desc: 'Faculty coordinators create and publish college hackathon opportunities, eligibility rules, and timeline deadlines.'
     },
     {
       num: '02',
       title: 'Discover & Register',
-      desc: 'Students explore college-posted hackathons, review domain tracks, and register with verified college credentials.'
+      desc: 'Students discover opportunities posted by their college, view requirements, and register for participation.'
     },
     {
       num: '03',
       title: 'Form & Manage Teams',
-      desc: 'Students assemble multidisciplinary squads or join existing rosters with team codes, while admins monitor team sizes.'
+      desc: 'Students assemble teams with peers or join rosters using team codes while faculty monitor team formation.'
     },
     {
       num: '04',
       title: 'Monitor & Track',
-      desc: 'Admins monitor participant turnout, team formations, and deadlines while students track milestone progress in real-time.'
+      desc: 'Faculty monitor student registrations, participation milestones, and deadlines while students track milestone progress.'
     },
     {
       num: '05',
       title: 'Submit Deliverables',
-      desc: 'Teams upload verified GitHub repositories, working live demos, slide decks, and project artifacts before deadlines.'
+      desc: 'Student teams submit project deliverables, repository links, documentation, and demos before deadlines.'
     },
     {
       num: '06',
-      title: 'Evaluate & Achieve',
-      desc: 'Faculty evaluate submissions, announce shortlisted teams, record winners, and issue tamper-evident certificates.'
+      title: 'Review & Record Results',
+      desc: 'Faculty coordinators review project submissions, record evaluation results, and publish student achievements.'
     }
   ];
 
-  // Exact 5 pillars as required by prompt Section 10
   const whyParticipatePillars = [
     {
       icon: <Lightbulb className="w-6 h-6 text-amber-500" />,
       title: 'Innovation',
-      desc: 'Tackle urgent technological challenges using foundation models, embedded edge IoT, and distributed systems.'
+      desc: 'Tackle real-world challenges, develop creative technical solutions, and explore emerging technologies.'
     },
     {
       icon: <Users className="w-6 h-6 text-blue-500" />,
       title: 'Collaboration',
-      desc: 'Partner with engineers, UI/UX designers, and domain researchers across all 6 engineering faculties.'
+      desc: 'Assemble multidisciplinary student teams across departments and develop teamwork, planning, and execution skills.'
     },
     {
       icon: <Cpu className="w-6 h-6 text-cyan-500" />,
-      title: 'Experience',
-      desc: 'Convert academic classroom theory into deployed, production-grade cloud software and benchmarked hardware prototypes.'
+      title: 'Practical Experience',
+      desc: 'Translate academic classroom concepts into working software deliverables and tangible project submissions.'
     },
     {
       icon: <Trophy className="w-6 h-6 text-emerald-500" />,
       title: 'Recognition',
-      desc: 'Compete for departmental trophies, cash grant awards, and fast-tracked campus incubation fellowship pipelines.'
+      desc: 'Showcase technical solutions to college faculty, earn institutional recognition, and receive constructive feedback.'
     },
     {
       icon: <FileCheck2 className="w-6 h-6 text-indigo-500" />,
-      title: 'Certificates',
-      desc: 'Receive official tamper-evident institutional digital credentials accredited for honors and career portfolios.'
+      title: 'Achievements',
+      desc: 'Record participation milestones, access faculty evaluations, and download certificates for student portfolios.'
     }
   ];
 
@@ -119,27 +121,26 @@ export const LandingPage: React.FC = () => {
             <div className="lg:col-span-7">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold mb-6">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                <span>HackHub • KalaignarKarunanidhi Institute Of Technology</span>
+                <span>HackHub • College Hackathon Management System</span>
               </div>
 
-              <h1 className="text-4xl sm:text-6xl font-display font-extrabold tracking-tight text-white leading-[1.1] mb-6">
-                Post. <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-300">
-                  Participate.
-                </span> <br />
-                Track. Achieve.
+              <h1 className="text-4xl sm:text-6xl font-display font-extrabold tracking-tight text-white leading-[1.1] mb-3">
+                HackHub
               </h1>
-
-              <p className="text-base sm:text-lg text-slate-300 max-w-2xl leading-relaxed mb-4">
-                A centralized college platform to post hackathons, monitor student participation, track teams and submissions, manage deadlines, and record student achievements.
+              <p className="text-xl sm:text-2xl font-display font-semibold text-cyan-300 mb-5 leading-snug">
+                College Hackathon Posting, Monitoring & Student Participation Management System
               </p>
 
-              <div className="flex items-center gap-2 text-xs text-cyan-300/90 font-medium mb-8 bg-cyan-950/40 border border-cyan-500/20 px-3.5 py-2 rounded-lg max-w-xl">
-                <span className="font-bold text-white">Two-Sided Platform:</span>
-                <span>Admins post and monitor hackathons • Students participate and track progress.</span>
+              <p className="text-base sm:text-lg text-slate-300 max-w-2xl leading-relaxed mb-6">
+                A centralized college platform where faculty publish hackathon opportunities and monitor participation while students discover competitions, manage registrations, collaborate with teams, track deadlines, and showcase their project submissions.
+              </p>
+
+              <div className="flex items-center gap-2 text-xs text-cyan-300/90 font-medium mb-8 bg-cyan-950/40 border border-cyan-500/20 px-3.5 py-2.5 rounded-lg max-w-xl">
+                <span className="font-bold text-white">Institutional Roles:</span>
+                <span>Faculty publish opportunities & monitor participation • Students discover competitions & track progress.</span>
               </div>
 
-              {/* Primary Actions: Explore Hackathons, Student Login, Admin Login */}
+              {/* Primary Entry Points: Explore Hackathons, Student Login, Admin Login */}
               <div className="flex flex-wrap items-center gap-3">
                 <Link
                   to="/hackathons"
@@ -170,20 +171,20 @@ export const LandingPage: React.FC = () => {
               <div className="flex flex-wrap items-center gap-6 pt-10 mt-10 border-t border-white/10 text-xs text-slate-300">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>Verified Student ID Only</span>
+                  <span>Institutional College Access</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-cyan-400" />
-                  <span>GPU Testbeds & Lab Access</span>
+                  <Layers className="w-4 h-4 text-cyan-400" />
+                  <span>Participation Monitoring</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Award className="w-4 h-4 text-amber-400" />
-                  <span>Official Academic Credits</span>
+                  <span>Submissions & Progress Tracking</span>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Abstract Technology Architecture Graphic */}
+            {/* Right Column: Platform Architecture Graphic */}
             <div className="lg:col-span-5">
               <div className="relative rounded-2xl p-1 bg-gradient-to-tr from-cyan-500/40 via-blue-500/20 to-indigo-500/40 shadow-2xl">
                 <div className="bg-navy-950/95 rounded-2xl p-6 backdrop-blur-xl border border-white/10 text-slate-200">
@@ -193,7 +194,7 @@ export const LandingPage: React.FC = () => {
                       <span className="w-3 h-3 rounded-full bg-rose-500" />
                       <span className="w-3 h-3 rounded-full bg-amber-500" />
                       <span className="w-3 h-3 rounded-full bg-emerald-500" />
-                      <span className="text-xs font-mono text-cyan-400 ml-2">hackhub-node ~ kitcbe.com</span>
+                      <span className="text-xs font-mono text-cyan-400 ml-2">hackhub-node ~ college portal</span>
                     </div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 bg-cyan-950 px-2.5 py-0.5 rounded border border-cyan-800">
                       LIVE PLATFORM
@@ -207,14 +208,14 @@ export const LandingPage: React.FC = () => {
                       <div className="flex items-center justify-between text-xs mb-1">
                         <span className="font-bold text-white flex items-center gap-1.5">
                           <Code2 className="w-4 h-4 text-cyan-400" />
-                          AI Nexus 2026: Flagship Sprint
+                          {featuredHackathon?.title || 'College Hackathon Opportunity'}
                         </span>
                         <span className="text-emerald-400 font-bold bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                          Registration Open
+                          {featuredHackathon?.status?.replace('_', ' ') || 'Active'}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400 mt-1">
-                        Block B AI Innovation Lab • 36h Interdisciplinary Challenge
+                        {featuredHackathon?.organizer || 'College Department'} • Participation Window
                       </p>
                       <div className="mt-3">
                         <Countdown targetDate={featuredHackathon?.registrationDeadline || '2026-10-10T23:59:59Z'} label="Registration Closes In:" />
@@ -226,29 +227,33 @@ export const LandingPage: React.FC = () => {
                       <div className="p-3.5 rounded-xl bg-navy-900/70 border border-navy-800">
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase font-semibold">
                           <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>Venue Passcode</span>
+                          <span>Student Entries</span>
                         </div>
-                        <p className="text-sm font-mono font-bold text-cyan-400 mt-1">NEXUS26</p>
-                        <p className="text-[10px] text-slate-400">Attendance Gate Desk</p>
+                        <p className="text-sm font-mono font-bold text-cyan-400 mt-1">
+                          {registrations.length > 0 ? `${registrations.length} Registered` : 'Open'}
+                        </p>
+                        <p className="text-[10px] text-slate-400">Participation Records</p>
                       </div>
                       <div className="p-3.5 rounded-xl bg-navy-900/70 border border-navy-800">
                         <div className="flex items-center gap-1.5 text-[10px] text-slate-400 uppercase font-semibold">
                           <Layers className="w-3.5 h-3.5 text-blue-400" />
                           <span>Teams Forming</span>
                         </div>
-                        <p className="text-sm font-bold text-white mt-1">312 Verified</p>
-                        <p className="text-[10px] text-slate-400">2–4 members / team</p>
+                        <p className="text-sm font-bold text-white mt-1">
+                          {teams.length > 0 ? `${teams.length} Squads` : 'Collaborative'}
+                        </p>
+                        <p className="text-[10px] text-slate-400">Team Rosters</p>
                       </div>
                     </div>
 
-                    {/* Secure Evaluation Verification Banner */}
+                    {/* Faculty Supervision & Oversight Banner */}
                     <div className="p-3.5 rounded-xl bg-blue-950/40 border border-blue-900/50 flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-blue-900/60 text-cyan-300">
                         <Lock className="w-4 h-4" />
                       </div>
                       <div className="text-xs">
-                        <p className="font-semibold text-white">Dean & Faculty Supervised</p>
-                        <p className="text-[11px] text-slate-400">Automated GitHub commit validation & anti-plagiarism filters.</p>
+                        <p className="font-semibold text-white">Faculty Posting & Oversight</p>
+                        <p className="text-[11px] text-slate-400">Monitor student registrations, milestone deadlines, and project submissions.</p>
                       </div>
                     </div>
                   </div>
@@ -259,42 +264,48 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* Central Product Lifecycle Ribbon (Post → Discover → Participate → Monitor → Submit → Evaluate → Achieve) */}
-      <section className="bg-navy-950 border-b border-navy-800 text-slate-300 py-3.5 px-4 overflow-x-auto">
-        <div className="max-w-7xl mx-auto flex items-center justify-between min-w-[700px] text-xs font-semibold">
-          <div className="flex items-center gap-1.5 text-cyan-400">
-            <span className="w-5 h-5 rounded-full bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-[10px] font-bold">1</span>
-            <span>Post</span>
+      {/* Central Product Lifecycle Ribbon (Faculty & Student User Journeys) */}
+      <section className="bg-navy-950 border-b border-navy-800 text-slate-300 py-4 px-4 overflow-x-auto">
+        <div className="max-w-7xl mx-auto space-y-3">
+          {/* Faculty Journey */}
+          <div className="flex items-center gap-3 text-xs min-w-[780px]">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-blue-900/60 text-cyan-300 border border-blue-700/50 shrink-0">
+              Faculty Journey
+            </span>
+            <div className="flex items-center justify-between flex-1 text-slate-300 text-xs">
+              <span className="font-semibold text-white">Sign In</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-white">Post Hackathon</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-white">Publish</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-cyan-400">Monitor Participation</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-white">Review Submissions</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-emerald-400">Record Results</span>
+            </div>
           </div>
-          <span className="text-slate-600">→</span>
-          <div className="flex items-center gap-1.5 text-slate-200">
-            <span className="w-5 h-5 rounded-full bg-navy-900 border border-slate-700 flex items-center justify-center text-[10px] font-bold">2</span>
-            <span>Discover</span>
-          </div>
-          <span className="text-slate-600">→</span>
-          <div className="flex items-center gap-1.5 text-slate-200">
-            <span className="w-5 h-5 rounded-full bg-navy-900 border border-slate-700 flex items-center justify-center text-[10px] font-bold">3</span>
-            <span>Participate</span>
-          </div>
-          <span className="text-slate-600">→</span>
-          <div className="flex items-center gap-1.5 text-cyan-400">
-            <span className="w-5 h-5 rounded-full bg-cyan-950 border border-cyan-500/40 flex items-center justify-center text-[10px] font-bold">4</span>
-            <span>Monitor</span>
-          </div>
-          <span className="text-slate-600">→</span>
-          <div className="flex items-center gap-1.5 text-slate-200">
-            <span className="w-5 h-5 rounded-full bg-navy-900 border border-slate-700 flex items-center justify-center text-[10px] font-bold">5</span>
-            <span>Submit</span>
-          </div>
-          <span className="text-slate-600">→</span>
-          <div className="flex items-center gap-1.5 text-slate-200">
-            <span className="w-5 h-5 rounded-full bg-navy-900 border border-slate-700 flex items-center justify-center text-[10px] font-bold">6</span>
-            <span>Evaluate</span>
-          </div>
-          <span className="text-slate-600">→</span>
-          <div className="flex items-center gap-1.5 text-emerald-400">
-            <span className="w-5 h-5 rounded-full bg-emerald-950 border border-emerald-500/40 flex items-center justify-center text-[10px] font-bold">7</span>
-            <span>Achieve</span>
+          {/* Student Journey */}
+          <div className="flex items-center gap-3 text-xs min-w-[780px] pt-2 border-t border-navy-900">
+            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/50 shrink-0">
+              Student Journey
+            </span>
+            <div className="flex items-center justify-between flex-1 text-slate-300 text-xs">
+              <span className="font-semibold text-white">Sign In</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-white">Explore Hackathons</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-cyan-400">Register</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-white">Participate</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-cyan-400">Track Progress</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-white">Submit Project</span>
+              <span className="text-slate-600">→</span>
+              <span className="font-semibold text-emerald-400">View Results</span>
+            </div>
           </div>
         </div>
       </section>
@@ -361,8 +372,8 @@ export const LandingPage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <Trophy className="w-4 h-4 text-amber-400" />
                       <div>
-                        <p className="text-[10px] text-slate-400 uppercase font-semibold">Prize Pool</p>
-                        <p className="font-bold text-amber-300">{featuredHackathon.prizePool || '₹50,000'}</p>
+                        <p className="text-[10px] text-slate-400 uppercase font-semibold">Award / Recognition</p>
+                        <p className="font-bold text-amber-300">{featuredHackathon.prizePool || 'Certificates & Recognition'}</p>
                       </div>
                     </div>
                   </div>
@@ -372,7 +383,7 @@ export const LandingPage: React.FC = () => {
                       to={`/hackathons/${featuredHackathon.id}`}
                       className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-navy-950 font-bold text-sm shadow-glow-cyan transition-all"
                     >
-                      <span>Register for AI Nexus</span>
+                      <span>Register for Hackathon</span>
                       <ArrowRight className="w-4 h-4" />
                     </Link>
                     <Link
@@ -392,11 +403,13 @@ export const LandingPage: React.FC = () => {
                     <Countdown targetDate={featuredHackathon.registrationDeadline} />
                   </div>
                   <div className="p-4 rounded-xl bg-navy-950 border border-navy-800 text-left text-xs space-y-2 text-slate-300">
-                    <p className="font-semibold text-white">Host Organizer:</p>
+                    <p className="font-semibold text-white">Host Department / Faculty:</p>
                     <p className="text-slate-400">{featuredHackathon.organizer}</p>
                     <div className="pt-2 border-t border-navy-900 flex items-center justify-between text-[11px]">
-                      <span className="text-slate-400">Participants Registered</span>
-                      <span className="font-bold text-cyan-400">1,248 Students</span>
+                      <span className="text-slate-400">Registered Students</span>
+                      <span className="font-bold text-cyan-400">
+                        {registrations.filter((r) => r.hackathonId === featuredHackathon.id).length} Students
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -418,7 +431,7 @@ export const LandingPage: React.FC = () => {
                 Upcoming Hackathons
               </h2>
               <p className="text-sm text-slate-500 mt-1 max-w-xl">
-                Choose your challenge track, assemble an interdisciplinary squad, and secure your team workspace.
+                Explore department challenges, assemble a student team, and register for participation.
               </p>
             </div>
             <Link
@@ -430,71 +443,88 @@ export const LandingPage: React.FC = () => {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {upcomingHackathons.map((hackathon) => (
-              <div
-                key={hackathon.id}
-                className="bg-white rounded-2xl border border-slate-200/80 shadow-subtle hover:shadow-elevated transition-all flex flex-col overflow-hidden group"
-              >
-                {/* Banner Image */}
-                <div className="relative h-48 overflow-hidden bg-navy-950">
-                  <img
-                    src={hackathon.bannerUrl}
-                    alt={hackathon.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-navy-950/80 via-transparent to-transparent" />
-                  <div className="absolute top-3 left-3">
-                    <StatusBadge status={hackathon.status} />
-                  </div>
-                  <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs text-white">
-                    <span className="font-semibold">{hackathon.mode.replace('_', ' ')}</span>
-                    <span className="bg-navy-900/80 px-2 py-0.5 rounded text-[11px] backdrop-blur-sm border border-white/10">
-                      Teams {hackathon.minTeamSize}–{hackathon.maxTeamSize}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Card Body */}
-                <div className="p-6 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">
-                      {hackathon.title}
-                    </h3>
-                    <p className="text-xs text-slate-500 font-medium mt-1 mb-3">
-                      {hackathon.organizer}
-                    </p>
-                    <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-4">
-                      {hackathon.shortDescription}
-                    </p>
-
-                    <div className="space-y-2 py-3 border-y border-slate-100 text-xs text-slate-600 mb-6">
-                      <div className="flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Event: {new Date(hackathon.eventStart).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="truncate">{hackathon.venue}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                        <span className="font-semibold text-slate-800">{hackathon.prizePool || 'Cash Prizes & Certificates'}</span>
-                      </div>
+          {upcomingHackathons.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {upcomingHackathons.map((hackathon) => (
+                <div
+                  key={hackathon.id}
+                  className="bg-white rounded-2xl border border-slate-200/80 shadow-subtle hover:shadow-elevated transition-all flex flex-col overflow-hidden group"
+                >
+                  {/* Banner Image */}
+                  <div className="relative h-48 overflow-hidden bg-navy-950">
+                    <img
+                      src={hackathon.bannerUrl}
+                      alt={hackathon.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-navy-950/80 via-transparent to-transparent" />
+                    <div className="absolute top-3 left-3">
+                      <StatusBadge status={hackathon.status} />
+                    </div>
+                    <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs text-white">
+                      <span className="font-semibold">{hackathon.mode.replace('_', ' ')}</span>
+                      <span className="bg-navy-900/80 px-2 py-0.5 rounded text-[11px] backdrop-blur-sm border border-white/10">
+                        Teams {hackathon.minTeamSize}–{hackathon.maxTeamSize}
+                      </span>
                     </div>
                   </div>
 
-                  <Link
-                    to={`/hackathons/${hackathon.id}`}
-                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white text-xs font-semibold shadow-sm transition-all"
-                  >
-                    <span>View Details & Register</span>
-                    <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
-                  </Link>
+                  {/* Card Body */}
+                  <div className="p-6 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-1">
+                        {hackathon.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 font-medium mt-1 mb-3">
+                        {hackathon.organizer}
+                      </p>
+                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed mb-4">
+                        {hackathon.shortDescription}
+                      </p>
+
+                      <div className="space-y-2 py-3 border-y border-slate-100 text-xs text-slate-600 mb-6">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                          <span>Event: {new Date(hackathon.eventStart).toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                          <span className="truncate">{hackathon.venue}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                          <span className="font-semibold text-slate-800">{hackathon.prizePool || 'Departmental Recognition & Certificates'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Link
+                      to={`/hackathons/${hackathon.id}`}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-navy-900 hover:bg-navy-800 text-white text-xs font-semibold shadow-sm transition-all"
+                    >
+                      <span>View Details & Register</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 px-4 rounded-2xl bg-white border border-slate-200/80 shadow-subtle max-w-xl mx-auto">
+              <Calendar className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-navy-950 mb-1">No Additional Hackathons Scheduled</h3>
+              <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                Upcoming college hackathon announcements will appear here once new department challenges are published.
+              </p>
+              <Link
+                to="/hackathons"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-navy-900 text-white text-xs font-semibold hover:bg-navy-800 transition-colors"
+              >
+                <span>Browse Full Catalog</span>
+                <ChevronRight className="w-3.5 h-3.5 text-cyan-400" />
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 
@@ -567,7 +597,7 @@ export const LandingPage: React.FC = () => {
         </div>
       </section>
 
-      {/* 6. COLLEGE HACKATHON STATISTICS (Exact numbers from Prompt Section 10) */}
+      {/* 6. REAL PARTICIPATION METRICS (No fabricated statistics) */}
       <section className="py-20 bg-navy-950 text-white relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:24px_24px] opacity-15 pointer-events-none" />
 
@@ -577,33 +607,41 @@ export const LandingPage: React.FC = () => {
               Institutional Scale
             </span>
             <h2 className="text-3xl font-display font-bold text-white tracking-tight mt-2">
-              College Hackathon Statistics
+              College Participation Metrics
             </h2>
             <p className="text-sm text-slate-400 mt-2">
-              Official engagement metrics across engineering departments and student innovation programs.
+              Active engagement metrics tracked across academic departments and student participation records.
             </p>
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
             <div className="p-6 rounded-2xl bg-navy-900/80 border border-navy-800 backdrop-blur-sm">
-              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">25+</p>
-              <p className="text-sm font-semibold text-cyan-400 mt-2">Hackathons</p>
-              <p className="text-xs text-slate-400 mt-1">Organized across faculties</p>
+              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">
+                {hackathons.filter((h) => h.status !== 'DRAFT').length}
+              </p>
+              <p className="text-sm font-semibold text-cyan-400 mt-2">Opportunities</p>
+              <p className="text-xs text-slate-400 mt-1">Published by faculty</p>
             </div>
             <div className="p-6 rounded-2xl bg-navy-900/80 border border-navy-800 backdrop-blur-sm">
-              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">4,500+</p>
-              <p className="text-sm font-semibold text-cyan-400 mt-2">Students</p>
-              <p className="text-xs text-slate-400 mt-1">Verified participants</p>
+              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">
+                {registrations.length}
+              </p>
+              <p className="text-sm font-semibold text-cyan-400 mt-2">Registrations</p>
+              <p className="text-xs text-slate-400 mt-1">Student entries managed</p>
             </div>
             <div className="p-6 rounded-2xl bg-navy-900/80 border border-navy-800 backdrop-blur-sm">
-              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">820+</p>
+              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">
+                {teams.length}
+              </p>
               <p className="text-sm font-semibold text-cyan-400 mt-2">Teams</p>
-              <p className="text-xs text-slate-400 mt-1">Formed and registered</p>
+              <p className="text-xs text-slate-400 mt-1">Formed & monitored</p>
             </div>
             <div className="p-6 rounded-2xl bg-navy-900/80 border border-navy-800 backdrop-blur-sm">
-              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">320+</p>
-              <p className="text-sm font-semibold text-cyan-400 mt-2">Projects</p>
-              <p className="text-xs text-slate-400 mt-1">Evaluated and deployed</p>
+              <p className="text-4xl sm:text-5xl font-display font-black text-white tracking-tight">
+                {submissions.length}
+              </p>
+              <p className="text-sm font-semibold text-cyan-400 mt-2">Submissions</p>
+              <p className="text-xs text-slate-400 mt-1">Deliverables tracked</p>
             </div>
           </div>
         </div>

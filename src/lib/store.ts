@@ -201,7 +201,7 @@ export const useAppStore = create<AppStoreState>()(
           return { success: false, message: 'Hackathon not found.' };
         }
 
-        if (code.trim().toUpperCase() !== (hackathon.attendanceCode || 'NEXUS26').trim().toUpperCase()) {
+        if (code.trim().toUpperCase() !== (hackathon.attendanceCode || 'KIT26').trim().toUpperCase()) {
           return { success: false, message: 'Invalid attendance passcode.' };
         }
 
@@ -226,7 +226,7 @@ export const useAppStore = create<AppStoreState>()(
           return { success: false, message: `Already part of squad "${existingTeam.name}".` };
         }
 
-        const code = `NEXUS-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+        const code = `TEAM-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
         const newTeam: Team = {
           id: `team-${Date.now()}`,
           hackathonId,

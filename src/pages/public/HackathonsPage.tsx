@@ -180,7 +180,7 @@ export const HackathonsPage: React.FC = () => {
       <SearchAndFilters
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
-        searchPlaceholder="Search hackathons by domain, technologies, organizer..."
+        searchPlaceholder="Search hackathons by domain, technologies, department..."
         filters={[
           {
             key: 'department',
@@ -278,12 +278,12 @@ export const HackathonsPage: React.FC = () => {
                 <span className="font-bold text-white">{featuredHackathon.minTeamSize}–{featuredHackathon.maxTeamSize} Members</span>
               </div>
               <div>
-                <span className="text-[10px] uppercase font-semibold text-slate-400 block">Prize Pool</span>
-                <span className="font-bold text-cyan-400">{featuredHackathon.prizePool || '₹50,000'}</span>
+                <span className="text-[10px] uppercase font-semibold text-slate-400 block">Award / Recognition</span>
+                <span className="font-bold text-cyan-400">{featuredHackathon.prizePool || 'Certificates & Recognition'}</span>
               </div>
               <div>
                 <span className="text-[10px] uppercase font-semibold text-slate-400 block">Participants</span>
-                <span className="font-bold text-white">{featuredHackathon.participantCount || 1248} Registered</span>
+                <span className="font-bold text-white">{featuredHackathon.participantCount ? `${featuredHackathon.participantCount} Registered` : 'Open for College Entries'}</span>
               </div>
             </div>
 
@@ -427,9 +427,9 @@ export const HackathonsPage: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-slate-400 flex items-center gap-1">
                             <Trophy className="w-3 h-3 text-amber-500" />
-                            Prize Pool:
+                            Award / Recognition:
                           </span>
-                          <span className="font-bold text-emerald-700">{h.prizePool || '₹40,000'}</span>
+                          <span className="font-bold text-emerald-700">{h.prizePool || 'Certificates & Recognition'}</span>
                         </div>
                       </div>
                     </div>
