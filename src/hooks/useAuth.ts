@@ -29,7 +29,8 @@ export function useAuth() {
         if (adminSnap.exists()) {
           const adminData = adminSnap.data() as Admin;
           const roleUpper = (adminData.role || '').toUpperCase();
-          if (roleUpper === 'ADMIN') {
+          const isApproved = adminData.approvalStatus === 'APPROVED' || (!adminData.approvalStatus && roleUpper === 'ADMIN');
+          if (roleUpper === 'ADMIN' && isApproved) {
             const currentAdmin: CurrentUser = {
               uid: fbUser.uid,
               email: fbUser.email || '',
@@ -38,6 +39,13 @@ export function useAuth() {
             };
             setUser(currentAdmin);
             setCurrentUser(currentAdmin);
+            setLoading(false);
+            return;
+          } else {
+            // Pending or rejected admin registration: do not grant admin role or permissions
+            console.warn(`[useAuth] Account ${fbUser.uid} has approvalStatus=${adminData.approvalStatus || 'PENDING'}; withholding admin permissions.`);
+            setUser(null);
+            setCurrentUser(null);
             setLoading(false);
             return;
           }

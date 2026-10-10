@@ -127,12 +127,17 @@ export const AdminSignupPage: React.FC = () => {
       });
 
       showToast(
-        'success',
-        'Admin Account Created',
-        'Registration successful! Please sign in with your credentials to access the Admin Portal.'
+        'info',
+        'Registration Submitted',
+        'Faculty coordinator registration submitted. Awaiting administrator verification.'
       );
 
-      navigate('/admin/login', { replace: true });
+      navigate('/admin/login', {
+        replace: true,
+        state: {
+          registeredNotice: 'Your faculty coordinator profile has been created and is pending approval by the college administrator. You will be able to sign in once your account has been approved.'
+        }
+      });
     } catch (err: any) {
       setError(err.message || 'Unable to register admin account. Please try again.');
     } finally {

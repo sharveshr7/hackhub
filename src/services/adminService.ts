@@ -6,7 +6,7 @@ import {
   updateDoc,
   serverTimestamp
 } from 'firebase/firestore';
-import { Registration, Student, RegistrationStatus } from '../types';
+import { Registration, Student, Admin, RegistrationStatus } from '../types';
 import { analyticsService } from './analyticsService';
 import { useAppStore } from '../lib/store';
 
@@ -42,6 +42,46 @@ export const adminService = {
       updatedAt: serverTimestamp()
     });
     useAppStore.getState().updateStudent(studentId, { accountStatus: status });
+  },
+
+  async getAllAdmins(): Promise<Admin[]> {
+    const snap = await getDocs(collection(db, 'admins'));
+    const admins = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as Admin));
+    useAppStore.setState({ admins });
+    return admins;
+  },
+
+  async approveFacultyAdmin(adminId: string, approverName: string): Promise<void> {
+    await updateDoc(doc(db, 'admins', adminId), {
+      approvalStatus: 'APPROVED',
+      approvedAt: serverTimestamp(),
+      approvedBy: approverName,
+      role: 'admin',
+      updatedAt: serverTimestamp()
+    });
+    const currentAdmins = useAppStore.getState().admins;
+    useAppStore.setState({
+      admins: currentAdmins.map((a) =>
+        a.uid === adminId
+          ? { ...a, approvalStatus: 'APPROVED', approvedBy: approverName }
+          : a
+      )
+    });
+  },
+
+  async rejectFacultyAdmin(adminId: string): Promise<void> {
+    await updateDoc(doc(db, 'admins', adminId), {
+      approvalStatus: 'REJECTED',
+      updatedAt: serverTimestamp()
+    });
+    const currentAdmins = useAppStore.getState().admins;
+    useAppStore.setState({
+      admins: currentAdmins.map((a) =>
+        a.uid === adminId
+          ? { ...a, approvalStatus: 'REJECTED' }
+          : a
+      )
+    });
   },
 
   generateRegistrationsCsv(): string {

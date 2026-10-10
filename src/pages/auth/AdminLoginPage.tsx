@@ -128,6 +128,13 @@ export const AdminLoginPage: React.FC = () => {
             </div>
           )}
 
+          {!error && (location.state as any)?.registeredNotice && (
+            <div className="mb-5 p-3.5 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2.5 text-xs text-amber-800 font-medium leading-relaxed">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>{(location.state as any).registeredNotice}</span>
+            </div>
+          )}
+
           <form onSubmit={handleLogin} className="space-y-4">
             <Input
               label="Email Address"

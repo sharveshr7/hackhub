@@ -131,6 +131,9 @@ export interface Admin {
   phone?: string;
   facultyId?: string;
   institution?: string;
+  approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  approvedAt?: any;
+  approvedBy?: string;
   createdAt?: any;
   updatedAt?: any;
 }

@@ -10,6 +10,7 @@ import { useAppStore } from '../lib/store';
 import {
   Hackathon,
   Student,
+  Admin,
   Team,
   Registration,
   Submission,
@@ -22,6 +23,7 @@ export function useFirestoreSync() {
   const currentUser = useAppStore((state) => state.currentUser);
   const setHackathons = useAppStore((state) => state.setHackathons);
   const setStudents = useAppStore((state) => state.setStudents);
+  const setAdmins = useAppStore((state) => state.setAdmins);
   const setTeams = useAppStore((state) => state.setTeams);
   const setRegistrations = useAppStore((state) => state.setRegistrations);
   const setSubmissions = useAppStore((state) => state.setSubmissions);
@@ -211,6 +213,27 @@ export function useFirestoreSync() {
         } catch (e) {
           console.warn('Failed to attach students listener:', e);
         }
+
+        // 9. Admins list (Admin only)
+        try {
+          const qAdmins = query(collection(db, 'admins'));
+          const unsub = onSnapshot(
+            qAdmins,
+            (snapshot) => {
+              const items: Admin[] = [];
+              snapshot.forEach((doc) => {
+                items.push({ uid: doc.id, ...doc.data() } as Admin);
+              });
+              setAdmins(items);
+            },
+            (error) => {
+              console.warn('Realtime sync warning (admins):', error.message);
+            }
+          );
+          unsubscribes.push(unsub);
+        } catch (e) {
+          console.warn('Failed to attach admins listener:', e);
+        }
       }
     }
 
@@ -221,6 +244,7 @@ export function useFirestoreSync() {
     currentUser,
     setHackathons,
     setStudents,
+    setAdmins,
     setTeams,
     setRegistrations,
     setSubmissions,
