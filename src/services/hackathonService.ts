@@ -2,6 +2,8 @@ import { db, storage } from '../lib/firebase';
 import {
   collection,
   getDocs,
+  query,
+  where,
   doc,
   getDoc,
   setDoc,
@@ -18,7 +20,12 @@ export const hackathonService = {
    * Fetch all real hackathon documents from Firestore collection 'hackathons'
    */
   async getAllHackathons(): Promise<Hackathon[]> {
-    const snap = await getDocs(collection(db, 'hackathons'));
+    const currentUser = useAppStore.getState().currentUser;
+    const q =
+      currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD'
+        ? collection(db, 'hackathons')
+        : query(collection(db, 'hackathons'), where('status', '!=', 'DRAFT'));
+    const snap = await getDocs(q);
     const hackathons = snap.docs.map((d) => ({
       id: d.id,
       ...d.data()

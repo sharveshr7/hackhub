@@ -37,9 +37,12 @@ export function useFirestoreSync() {
   useEffect(() => {
     const unsubscribes: Array<() => void> = [];
 
-    // 1. Sync public Hackathons
+    // 1. Sync Hackathons (Admins/HOD see drafts; public/students see published challenges)
     try {
-      const qHackathons = query(collection(db, 'hackathons'));
+      const qHackathons =
+        currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD'
+          ? query(collection(db, 'hackathons'))
+          : query(collection(db, 'hackathons'), where('status', '!=', 'DRAFT'));
       const unsub = onSnapshot(
         qHackathons,
         (snapshot) => {
@@ -102,9 +105,12 @@ export function useFirestoreSync() {
 
     // Authenticated Collections
     if (currentUser) {
-      // 4. Registrations
+      // 4. Registrations (Students scoped to own records; Administrators see all)
       try {
-        const qRegistrations = query(collection(db, 'registrations'));
+        const qRegistrations =
+          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
+            ? query(collection(db, 'registrations'))
+            : query(collection(db, 'registrations'), where('studentId', '==', currentUser.uid));
         const unsub = onSnapshot(
           qRegistrations,
           (snapshot) => {
@@ -144,9 +150,12 @@ export function useFirestoreSync() {
         console.warn('Failed to attach teams listener:', e);
       }
 
-      // 6. Submissions
+      // 6. Submissions (Students scoped to own submissions; Administrators see all)
       try {
-        const qSubmissions = query(collection(db, 'submissions'));
+        const qSubmissions =
+          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
+            ? query(collection(db, 'submissions'))
+            : query(collection(db, 'submissions'), where('submittedBy', '==', currentUser.uid));
         const unsub = onSnapshot(
           qSubmissions,
           (snapshot) => {

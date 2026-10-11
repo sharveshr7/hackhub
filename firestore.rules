@@ -18,10 +18,15 @@ service cloud.firestore {
         (
           exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
           (
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role == 'HOD' ||
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isHod == true
+            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role in ['HOD', 'hod'] ||
+            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isHod == true ||
+            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isFirstAdmin == true ||
+            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.designation == 'Head of Department (HOD)'
           ) &&
-          get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.approvalStatus == 'APPROVED'
+          (
+            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.approvalStatus == 'APPROVED' ||
+            !('approvalStatus' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
+          )
         )
       );
     }
@@ -46,26 +51,31 @@ service cloud.firestore {
     }
 
     // Students Collection: Account creation restricted to Administrators/HOD (No self-signup)
-    // Students can update non-privileged profile data, but cannot modify their role or registration number
+    // Students can read own profile; student directory listing is restricted to administrators.
+    // Students cannot modify their role, registerNumber, accountStatus, or email.
     match /students/{studentId} {
-      allow read: if isAuthenticated();
+      allow get: if isOwner(studentId) || isAdmin();
+      allow list: if isAdmin();
       allow create: if isAdmin();
       allow update: if isAdmin() || (
         isOwner(studentId) &&
         (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
         (!('registerNumber' in request.resource.data) || request.resource.data.registerNumber == resource.data.registerNumber) &&
+        (!('registrationNumberNormalized' in request.resource.data) || request.resource.data.registrationNumberNormalized == resource.data.registrationNumberNormalized) &&
         (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive) &&
+        (!('accountStatus' in request.resource.data) || request.resource.data.accountStatus == resource.data.accountStatus) &&
         (!('email' in request.resource.data) || request.resource.data.email == resource.data.email)
       );
       allow delete: if isAdmin();
     }
 
-    // Admins Collection: Read allowed for own profile or approved admin
+    // Admins Collection: Read allowed for own profile or approved admin/HOD
     // Create allowed for:
     // 1) An approved HOD/admin, OR
     // 2) A faculty applicant registering their own profile with approvalStatus == 'PENDING'
     match /admins/{adminId} {
-      allow read: if isAuthenticated() && (isOwner(adminId) || isAdmin());
+      allow get: if isOwner(adminId) || isAdmin();
+      allow list: if isAdmin();
       allow create: if isHod() || (
         isOwner(adminId) &&
         request.resource.data.uid == request.auth.uid &&
@@ -102,17 +112,31 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Hackathons Collection: Public discovery for collegiate challenges; only admins can create/edit/delete
+    // Hackathons Collection: Public discovery for collegiate challenges; drafts are protected for admin view only
     match /hackathons/{hackathonId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read: if (resource == null) ||
+        resource.data.status in [
+          'PUBLISHED', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'LIVE', 'COMPLETED', 'CANCELLED', 'SUBMISSION_CLOSED',
+          'published', 'registration_open', 'registration_closed', 'live', 'completed', 'cancelled', 'submission_closed'
+        ] ||
+        (resource.data.status != 'DRAFT' && resource.data.status != 'draft') ||
+        isAdmin();
+      allow create: if isAdmin() &&
+        request.resource.data.title is string && request.resource.data.title.size() > 0 &&
+        request.resource.data.organizer is string && request.resource.data.organizer.size() > 0 &&
+        request.resource.data.shortDescription is string && request.resource.data.shortDescription.size() > 0;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
 
-    // Registrations Collection: Students manage own registrations; admins have supervision access
+    // Registrations Collection: Students manage own registrations; cannot read other students' private registrations
     match /registrations/{registrationId} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() && (
+        resource.data.studentId == request.auth.uid || isAdmin()
+      );
       allow create: if isAuthenticated() && (
-        request.resource.data.studentId == request.auth.uid || isAdmin()
+        (request.resource.data.studentId == request.auth.uid && request.resource.data.status in ['CONFIRMED', 'PENDING', 'REGISTERED']) ||
+        isAdmin()
       );
       allow update: if isAdmin() || (
         isAuthenticated() &&
@@ -141,18 +165,27 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isAuthenticated() && resource.data.leaderId == request.auth.uid);
     }
 
-    // Submissions Collection: Only the submitting student or admin can create/update
+    // Submissions Collection: Only the submitting student or admin can create/update; evaluation fields protected
     match /submissions/{submissionId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && (
-        request.resource.data.submittedBy == request.auth.uid ||
-        request.resource.data.leaderId == request.auth.uid ||
-        isAdmin()
-      );
-      allow update: if isAuthenticated() && (
+      allow read: if isAuthenticated() && (
         resource.data.submittedBy == request.auth.uid ||
         resource.data.leaderId == request.auth.uid ||
         isAdmin()
+      );
+      allow create: if isAuthenticated() && (
+        (request.resource.data.submittedBy == request.auth.uid || request.resource.data.leaderId == request.auth.uid) ||
+        isAdmin()
+      ) &&
+      request.resource.data.hackathonId is string &&
+      request.resource.data.projectTitle is string;
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        (resource.data.submittedBy == request.auth.uid || resource.data.leaderId == request.auth.uid) &&
+        request.resource.data.submittedBy == resource.data.submittedBy &&
+        request.resource.data.hackathonId == resource.data.hackathonId &&
+        (!('evaluationScore' in request.resource.data) || request.resource.data.evaluationScore == resource.data.evaluationScore) &&
+        (!('evaluationFeedback' in request.resource.data) || request.resource.data.evaluationFeedback == resource.data.evaluationFeedback) &&
+        (!('rank' in request.resource.data) || request.resource.data.rank == resource.data.rank)
       );
       allow delete: if isAdmin();
     }
