@@ -125,6 +125,11 @@ export function parseServiceAccountPayload(rawInput: string): {
 } {
   let raw = (rawInput || '').trim();
 
+  // Strip markdown code fences if copied from documentation
+  if (raw.startsWith('```') && raw.endsWith('```')) {
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
+
   // Strip leading/trailing surrounding quotes if wrapped
   if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
     raw = raw.slice(1, -1).trim();
@@ -161,9 +166,10 @@ export function parseServiceAccountPayload(rawInput: string): {
     }
   }
 
-  // Base64 decode attempt
+  // Base64 decode attempt (stripping any accidental whitespace or newlines)
   try {
-    const decoded = Buffer.from(raw, 'base64').toString('utf8').trim();
+    const cleanBase64 = raw.replace(/\s+/g, '');
+    const decoded = Buffer.from(cleanBase64, 'base64').toString('utf8').trim();
     if (decoded.startsWith('{')) {
       const parsed = JSON.parse(decoded);
       return { serviceAccount: parsed, format: 'base64_json' };
@@ -215,6 +221,9 @@ export async function getAuthDiagnostics(): Promise<AuthDiagnostics> {
     process.env.FIREBASE_SERVICE_ACCOUNT ||
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
     process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+    process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT ||
+    process.env.FIREBASE_ADMIN_KEY ||
+    process.env.SERVICE_ACCOUNT_KEY ||
     process.env.FIREBASE_CREDENTIALS ||
     process.env.GOOGLE_SERVICE_ACCOUNT;
 
@@ -314,6 +323,9 @@ export async function getAdminInstances() {
       process.env.FIREBASE_SERVICE_ACCOUNT ||
       process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
       process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+      process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT ||
+      process.env.FIREBASE_ADMIN_KEY ||
+      process.env.SERVICE_ACCOUNT_KEY ||
       process.env.FIREBASE_CREDENTIALS ||
       process.env.GOOGLE_SERVICE_ACCOUNT;
 
@@ -322,7 +334,7 @@ export async function getAdminInstances() {
 
       // Validate that credentials belong to the intended HackHub Firebase project
       const credProjectId = (serviceAccount.project_id || serviceAccount.projectId || '').trim();
-      if (credProjectId && credProjectId !== expectedProjectId) {
+      if (credProjectId && credProjectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
         console.warn(`[StudentAuth Diagnostics] Credential project_id "${credProjectId}" does not match target HackHub project "${expectedProjectId}".`);
         return null;
       }
