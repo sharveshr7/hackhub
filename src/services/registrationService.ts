@@ -91,6 +91,7 @@ export const registrationService = {
       (hackathon.organizerType && hackathon.organizerType !== 'OUR_COLLEGE')
     );
     const registrationNumber = isExt ? `EXT-TRACK-${randNum}` : `HACK-2026-${randNum}`;
+    const nowIso = new Date().toISOString();
 
     const newReg: Registration = {
       id: regId,
@@ -100,18 +101,52 @@ export const registrationService = {
       status: 'CONFIRMED',
       isExternal: isExt,
       externalTrackingOnly: isExt,
-      externalStatus: isExt ? 'APPLIED_EXTERNALLY' : undefined,
       acceptedRules: true,
       attendanceStatus: isExt ? 'ATTENDED' : 'PENDING',
       submissionStatus: 'NOT_SUBMITTED',
-      registeredAt: new Date().toISOString()
+      registeredAt: nowIso,
+      ...(isExt ? { externalStatus: 'APPLIED_EXTERNALLY' } : {})
     };
 
-    await setDoc(doc(db, 'registrations', regId), {
-      ...newReg,
+    // Build payload for Firestore, strictly omitting undefined fields
+    const firestorePayload: Record<string, any> = {
+      id: regId,
+      hackathonId,
+      studentId,
+      registrationNumber,
+      status: 'CONFIRMED',
+      isExternal: isExt,
+      externalTrackingOnly: isExt,
+      acceptedRules: true,
+      attendanceStatus: isExt ? 'ATTENDED' : 'PENDING',
+      submissionStatus: 'NOT_SUBMITTED',
+      registeredAt: nowIso,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
-    });
+    };
+
+    // For external opportunity tracking, include externalStatus
+    if (isExt) {
+      firestorePayload.externalStatus = 'APPLIED_EXTERNALLY';
+    }
+
+    // Only include optional fields if they have defined values
+    if (newReg.teamId !== undefined) {
+      firestorePayload.teamId = newReg.teamId;
+    }
+    if (newReg.attendedAt !== undefined) {
+      firestorePayload.attendedAt = newReg.attendedAt;
+    }
+    if (newReg.externalNotes !== undefined) {
+      firestorePayload.externalNotes = newReg.externalNotes;
+    }
+
+    // Defensive strip of any undefined values
+    const cleanPayload = Object.fromEntries(
+      Object.entries(firestorePayload).filter(([_, v]) => v !== undefined)
+    );
+
+    await setDoc(doc(db, 'registrations', regId), cleanPayload);
 
     // Sync into store
     useAppStore.setState((state) => ({
@@ -150,13 +185,16 @@ export const registrationService = {
       externalStatus,
       updatedAt: new Date().toISOString()
     };
-    if (notes !== undefined) {
-      updates.externalNotes = notes;
+    if (notes !== undefined && notes.trim() !== '') {
+      updates.externalNotes = notes.trim();
     }
-    await updateDoc(doc(db, 'registrations', id), {
-      ...updates,
-      updatedAt: serverTimestamp()
-    });
+    const cleanUpdates = Object.fromEntries(
+      Object.entries({
+        ...updates,
+        updatedAt: serverTimestamp()
+      }).filter(([_, v]) => v !== undefined)
+    );
+    await updateDoc(doc(db, 'registrations', id), cleanUpdates);
     useAppStore.getState().updateRegistration(id, updates);
   }
 };

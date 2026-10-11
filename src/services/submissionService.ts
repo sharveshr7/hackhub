@@ -131,16 +131,20 @@ export const submissionService = {
       submittedBy: data.submittedBy || auth.currentUser?.uid || '',
       status: data.isDraft ? 'DRAFT' : 'SUBMITTED',
       isDraft: Boolean(data.isDraft),
-      submittedAt: data.isDraft ? undefined : nowIso,
+      ...(data.isDraft ? {} : { submittedAt: nowIso }),
       createdAt: nowIso,
       updatedAt: nowIso
     };
 
-    await setDoc(doc(db, 'submissions', subId), {
-      ...submissionDoc,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+    const cleanSubmission = Object.fromEntries(
+      Object.entries({
+        ...submissionDoc,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }).filter(([_, v]) => v !== undefined)
+    );
+
+    await setDoc(doc(db, 'submissions', subId), cleanSubmission);
 
     useAppStore.getState().saveSubmission(submissionDoc);
     return submissionDoc;
