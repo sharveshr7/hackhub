@@ -776,5 +776,32 @@ export default async function handler(req: any, res: any) {
 
   const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1').toString().split(',')[0].trim();
   const result = await handleStudentAuth(req.body || {}, clientIp);
+
+  if (result.status === 503) {
+    const rawSA =
+      process.env.FIREBASE_SERVICE_ACCOUNT ||
+      process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
+      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+      process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT ||
+      process.env.FIREBASE_ADMIN_KEY ||
+      process.env.SERVICE_ACCOUNT_KEY ||
+      process.env.FIREBASE_CREDENTIALS ||
+      process.env.GOOGLE_SERVICE_ACCOUNT;
+    res.setHeader('X-Auth-Credential-Detected', rawSA ? 'true' : 'false');
+    if (rawSA) {
+      res.setHeader('X-Auth-Credential-Length', rawSA.length.toString());
+      try {
+        const { serviceAccount, format } = parseServiceAccountPayload(rawSA);
+        res.setHeader('X-Auth-Credential-Format', format);
+        const pId = serviceAccount.project_id || serviceAccount.projectId;
+        res.setHeader('X-Auth-Credential-Project', pId ? pId.toString() : 'missing');
+      } catch {
+        res.setHeader('X-Auth-Init-Reason', 'MALFORMED_PAYLOAD');
+      }
+    } else {
+      res.setHeader('X-Auth-Init-Reason', 'ENVIRONMENT_VARIABLE_MISSING');
+    }
+  }
+
   return res.status(result.status).json(result.body);
 }
