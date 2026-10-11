@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
 import { isFirebaseConfigured } from '../../lib/firebase/config';
 import { Input } from '../../components/common/Input';
@@ -34,6 +35,10 @@ export const AdminSettingsPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<'account' | 'faculty' | 'notifications' | 'appearance' | 'security'>('account');
   const [processingAdminId, setProcessingAdminId] = useState<string | null>(null);
+
+  useEffect(() => {
+    adminService.getAllAdmins().catch(() => {});
+  }, []);
 
   // Account / Admin Profile
   const [adminName, setAdminName] = useState(currentUser?.adminData?.name || currentUser?.email?.split('@')[0] || 'Faculty Administrator');
@@ -238,9 +243,15 @@ export const AdminSettingsPage: React.FC = () => {
                 Review institutional faculty registrations. Only verified coordinators with approved status are granted administrative privileges.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Link
+                to="/admin/faculty-approvals"
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-navy-950 hover:bg-navy-900 text-cyan-400 border border-navy-800 shadow-xs transition-colors"
+              >
+                Open Full Approvals Console →
+              </Link>
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                {admins.length} Total Coordinators
+                {admins.length} Total
               </span>
               {pendingFacultyCount > 0 && (
                 <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">

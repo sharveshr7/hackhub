@@ -259,7 +259,7 @@ export const StudentSubmissionsPage: React.FC = () => {
     }
 
     // Verify submission deadline
-    const deadline = new Date(currentHackathon.submissionDeadline || currentHackathon.eventEnd);
+    const deadline = new Date(currentHackathon.submissionDeadline || currentHackathon.eventEnd || '');
     if (new Date() > deadline) {
       addToast('Project submission deadline has officially elapsed for this challenge.', 'error');
       return;

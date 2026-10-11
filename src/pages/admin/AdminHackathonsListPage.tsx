@@ -26,9 +26,13 @@ import {
   FolderGit2,
   FileCheck2,
   Megaphone,
-  Activity
+  Activity,
+  Globe,
+  UploadCloud,
+  FileDown
 } from 'lucide-react';
 import { Hackathon, HackathonStatus } from '../../types';
+import { getOrganizerTypeLabel, getOrganizerBadgeStyle } from '../../utils/eventHelpers';
 
 export const AdminHackathonsListPage: React.FC = () => {
   const { hackathons, registrations, teams, submissions } = useAppStore();
@@ -41,6 +45,21 @@ export const AdminHackathonsListPage: React.FC = () => {
   const [attendanceTarget, setAttendanceTarget] = useState<Hackathon | null>(null);
   const [newAttendanceCode, setNewAttendanceCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleTogglePublish = async (h: Hackathon) => {
+    const newStatus: HackathonStatus = h.status === 'DRAFT' ? 'REGISTRATION_OPEN' : 'DRAFT';
+    try {
+      await hackathonService.updateHackathonStatus(h.id, newStatus);
+      addToast(
+        newStatus === 'REGISTRATION_OPEN'
+          ? 'Hackathon published to live catalog.'
+          : 'Hackathon unpublished and moved to Draft.',
+        'success'
+      );
+    } catch (err: any) {
+      addToast(err.message || 'Failed to update status', 'error');
+    }
+  };
 
   const filters = [
     { id: 'ALL', label: 'All' },
@@ -58,7 +77,8 @@ export const AdminHackathonsListPage: React.FC = () => {
       const match =
         h.title.toLowerCase().includes(q) ||
         h.organizer.toLowerCase().includes(q) ||
-        h.venue.toLowerCase().includes(q);
+        (h.venue && h.venue.toLowerCase().includes(q)) ||
+        (h.location && h.location.toLowerCase().includes(q));
       if (!match) return false;
     }
 
@@ -194,26 +214,38 @@ export const AdminHackathonsListPage: React.FC = () => {
                   const regCount = registrations.filter((r) => r.hackathonId === h.id).length;
                   const teamCount = teams.filter((t) => t.hackathonId === h.id).length;
                   const subCount = submissions.filter((s) => s.hackathonId === h.id && !s.isDraft).length;
+                  const orgTypeLabel = getOrganizerTypeLabel(h.organizerType, h.organizer);
+                  const orgBadgeStyle = getOrganizerBadgeStyle(h.organizerType, h.organizer);
 
                   return (
                     <tr key={h.id} className="hover:bg-slate-50 transition-colors">
-                      {/* Name & Organizer */}
+                      {/* Name & Organizer with Type Badge */}
                       <td className="py-3 px-4">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${orgBadgeStyle.bg} ${orgBadgeStyle.text} ${orgBadgeStyle.border}`}>
+                            {orgTypeLabel}
+                          </span>
+                          {h.category && (
+                            <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 uppercase">
+                              {h.category.replace(/_/g, ' ')}
+                            </span>
+                          )}
+                        </div>
                         <Link
                           to={`/admin/hackathons/${h.id}`}
-                          className="font-bold text-navy-950 hover:text-blue-600 transition-colors block"
+                          className="font-bold text-navy-950 hover:text-blue-600 transition-colors block text-xs"
                         >
                           {h.title}
                         </Link>
-                        <span className="text-[10px] text-slate-400 block font-medium mt-0.5 truncate max-w-xs">
+                        <span className="text-[10px] text-slate-500 block font-medium mt-0.5 truncate max-w-xs">
                           {h.organizer}
                         </span>
                       </td>
 
                       {/* Event Date */}
                       <td className="py-3 px-4 font-medium text-slate-800">
-                        {new Date(h.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' })}–
-                        {new Date(h.eventEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {h.eventStart ? new Date(h.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'TBD'}
+                        {h.eventEnd ? `–${new Date(h.eventEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
                       </td>
 
                       {/* Registration Count */}
@@ -233,7 +265,7 @@ export const AdminHackathonsListPage: React.FC = () => {
 
                       {/* Registration Deadline */}
                       <td className="py-3 px-4 text-amber-700 font-semibold">
-                        {new Date(h.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {h.registrationDeadline ? new Date(h.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not set'}
                       </td>
 
                       {/* Status */}
@@ -244,12 +276,32 @@ export const AdminHackathonsListPage: React.FC = () => {
                       {/* Actions */}
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1.5 justify-end">
+                          {/* Quick Toggle Publish */}
+                          <button
+                            onClick={() => handleTogglePublish(h)}
+                            title={h.status === 'DRAFT' ? 'Publish Opportunity to Live Catalog' : 'Unpublish to Draft'}
+                            className={`p-1 rounded transition-colors ${
+                              h.status === 'DRAFT'
+                                ? 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
+                                : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                            }`}
+                          >
+                            {h.status === 'DRAFT' ? <UploadCloud className="w-3.5 h-3.5" /> : <FileDown className="w-3.5 h-3.5" />}
+                          </button>
+
                           <Link
                             to={`/admin/hackathons/${h.id}`}
-                            title="View / Monitor / Edit Control Center"
+                            title="View / Monitor Control Center"
                             className="p-1 text-slate-600 hover:text-blue-600 rounded hover:bg-slate-100"
                           >
                             <Eye className="w-3.5 h-3.5" />
+                          </Link>
+                          <Link
+                            to={`/admin/hackathons/${h.id}?tab=SETTINGS`}
+                            title="Edit Event Details"
+                            className="p-1 text-slate-600 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
                           </Link>
                           <Link
                             to={`/admin/registrations`}
@@ -271,13 +323,6 @@ export const AdminHackathonsListPage: React.FC = () => {
                             className="p-1 text-slate-600 hover:text-emerald-600 rounded hover:bg-slate-100"
                           >
                             <FolderGit2 className="w-3.5 h-3.5" />
-                          </Link>
-                          <Link
-                            to={`/admin/announcements`}
-                            title="Announcements"
-                            className="p-1 text-slate-600 hover:text-amber-600 rounded hover:bg-slate-100"
-                          >
-                            <Megaphone className="w-3.5 h-3.5" />
                           </Link>
                           <button
                             onClick={() => {
@@ -326,28 +371,45 @@ export const AdminHackathonsListPage: React.FC = () => {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${getOrganizerBadgeStyle(h.organizerType, h.organizer).bg} ${getOrganizerBadgeStyle(h.organizerType, h.organizer).text} ${getOrganizerBadgeStyle(h.organizerType, h.organizer).border}`}>
+                        {getOrganizerTypeLabel(h.organizerType, h.organizer)}
+                      </span>
+                    </div>
                     <Link
                       to={`/admin/hackathons/${h.id}`}
                       className="font-bold text-sm text-navy-950 hover:text-blue-600 block"
                     >
                       {h.title}
                     </Link>
-                    <span className="text-[11px] text-slate-400">{h.organizer}</span>
+                    <span className="text-[11px] text-slate-500 font-medium">{h.organizer}</span>
                   </div>
-                  <StatusBadge status={h.status} />
+                  <div className="flex flex-col items-end gap-1.5">
+                    <StatusBadge status={h.status} />
+                    <button
+                      onClick={() => handleTogglePublish(h)}
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer ${
+                        h.status === 'DRAFT'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {h.status === 'DRAFT' ? 'Publish' : 'Unpublish'}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-100 text-xs">
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold block">Date</span>
                     <span className="font-medium text-slate-800 text-[11px]">
-                      {new Date(h.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      {h.eventStart ? new Date(h.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'TBA'}
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold block">Deadline</span>
                     <span className="font-semibold text-amber-700 text-[11px]">
-                      {new Date(h.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      {h.registrationDeadline ? new Date(h.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Not specified'}
                     </span>
                   </div>
                   <div>
@@ -376,6 +438,12 @@ export const AdminHackathonsListPage: React.FC = () => {
                     >
                       <span>Control Center</span>
                       <ChevronRight className="w-3.5 h-3.5" />
+                    </Link>
+                    <Link
+                      to={`/admin/hackathons/${h.id}?tab=SETTINGS`}
+                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                    >
+                      Edit
                     </Link>
                     <Link
                       to={`/admin/registrations`}

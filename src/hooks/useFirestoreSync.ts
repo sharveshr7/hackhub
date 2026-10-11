@@ -3,6 +3,7 @@ import {
   collection,
   onSnapshot,
   query,
+  where,
   orderBy
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -16,7 +17,8 @@ import {
   Submission,
   Announcement,
   NotificationItem,
-  Certificate
+  Certificate,
+  AuditLog
 } from '../types';
 
 export function useFirestoreSync() {
@@ -30,6 +32,7 @@ export function useFirestoreSync() {
   const setAnnouncements = useAppStore((state) => state.setAnnouncements);
   const setNotifications = useAppStore((state) => state.setNotifications);
   const setCertificates = useAppStore((state) => state.setCertificates);
+  const setAuditLogs = useAppStore((state) => state.setAuditLogs);
 
   useEffect(() => {
     const unsubscribes: Array<() => void> = [];
@@ -162,9 +165,12 @@ export function useFirestoreSync() {
         console.warn('Failed to attach submissions listener:', e);
       }
 
-      // 7. Notifications
+      // 7. Notifications (Scoped to current student or broadcast 'ALL' for students; all for administrators)
       try {
-        const qNotifications = query(collection(db, 'notifications'));
+        const qNotifications =
+          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
+            ? query(collection(db, 'notifications'))
+            : query(collection(db, 'notifications'), where('userId', 'in', [currentUser.uid, 'ALL']));
         const unsub = onSnapshot(
           qNotifications,
           (snapshot) => {
@@ -192,8 +198,8 @@ export function useFirestoreSync() {
         console.warn('Failed to attach notifications listener:', e);
       }
 
-      // 8. Students (Admin only)
-      if (currentUser.role === 'ADMIN') {
+      // 8. Students (Admin & HOD)
+      if (currentUser.role === 'ADMIN' || currentUser.role === 'HOD') {
         try {
           const qStudents = query(collection(db, 'students'));
           const unsub = onSnapshot(
@@ -214,7 +220,7 @@ export function useFirestoreSync() {
           console.warn('Failed to attach students listener:', e);
         }
 
-        // 9. Admins list (Admin only)
+        // 9. Admins list (Admin & HOD)
         try {
           const qAdmins = query(collection(db, 'admins'));
           const unsub = onSnapshot(
@@ -233,6 +239,29 @@ export function useFirestoreSync() {
           unsubscribes.push(unsub);
         } catch (e) {
           console.warn('Failed to attach admins listener:', e);
+        }
+      }
+
+      // 10. Audit Logs (HOD only)
+      if (currentUser.role === 'HOD') {
+        try {
+          const qAudit = query(collection(db, 'audit_logs'));
+          const unsub = onSnapshot(
+            qAudit,
+            (snapshot) => {
+              const items: AuditLog[] = [];
+              snapshot.forEach((doc) => {
+                items.push({ id: doc.id, ...doc.data() } as AuditLog);
+              });
+              setAuditLogs(items);
+            },
+            (error) => {
+              console.warn('Realtime sync warning (audit_logs):', error.message);
+            }
+          );
+          unsubscribes.push(unsub);
+        } catch (e) {
+          console.warn('Failed to attach audit_logs listener:', e);
         }
       }
     }

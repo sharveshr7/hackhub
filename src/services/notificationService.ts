@@ -39,6 +39,7 @@ export const notificationService = {
 
     const notifItem: NotificationItem = {
       ...data,
+      userId: data.userId || 'ALL',
       id,
       createdAt: now,
       isRead: false

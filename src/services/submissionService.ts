@@ -91,16 +91,18 @@ export const submissionService = {
       const hSnap = await getDoc(doc(db, 'hackathons', data.hackathonId));
       if (hSnap.exists()) {
         const hackathon = hSnap.data() as Hackathon;
-        const now = new Date();
-        const deadline = new Date(hackathon.submissionDeadline || hackathon.eventEnd);
-        if (now > deadline) {
-          throw new Error('Project submission deadline has officially elapsed for this challenge.');
+        const deadlineStr = hackathon.submissionDeadline || hackathon.eventEnd;
+        if (deadlineStr) {
+          const deadline = new Date(deadlineStr);
+          if (!isNaN(deadline.getTime()) && new Date() > deadline) {
+            throw new Error('Project submission deadline has officially elapsed for this challenge.');
+          }
         }
       }
     }
 
     const subId = data.id || `sub_${data.hackathonId}_${data.teamId}`;
-    const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
 
     const submissionDoc: Submission = {
       id: subId,
@@ -129,9 +131,9 @@ export const submissionService = {
       submittedBy: data.submittedBy || auth.currentUser?.uid || '',
       status: data.isDraft ? 'DRAFT' : 'SUBMITTED',
       isDraft: Boolean(data.isDraft),
-      submittedAt: data.isDraft ? undefined : now,
-      createdAt: now,
-      updatedAt: now
+      submittedAt: data.isDraft ? undefined : nowIso,
+      createdAt: nowIso,
+      updatedAt: nowIso
     };
 
     await setDoc(doc(db, 'submissions', subId), {

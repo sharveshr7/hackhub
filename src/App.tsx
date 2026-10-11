@@ -42,6 +42,16 @@ import { AdminNotificationsPage } from './pages/admin/AdminNotificationsPage';
 import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAttendancePage } from './pages/admin/AdminAttendancePage';
+import { AdminFacultyApprovalsPage } from './pages/admin/AdminFacultyApprovalsPage';
+
+// HOD Pages & Layout
+import { HodLayout } from './components/layout/HodLayout';
+import { HodDashboardPage } from './pages/hod/HodDashboardPage';
+import { HodAdminApprovalsPage } from './pages/hod/HodAdminApprovalsPage';
+import { HodAdministratorsPage } from './pages/hod/HodAdministratorsPage';
+import { HodStudentsPage } from './pages/hod/HodStudentsPage';
+import { HodAuditLogPage } from './pages/hod/HodAuditLogPage';
+
 import { useAuth } from './hooks/useAuth';
 import { useFirestoreSync } from './hooks/useFirestoreSync';
 
@@ -59,7 +69,7 @@ export function App() {
             <Route path="/hackathons" element={<HackathonsPage />} />
             <Route path="/hackathons/:hackathonId" element={<HackathonDetailsPage />} />
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/signup" element={<StudentLoginPage initialMode="REGISTER" />} />
+            <Route path="/signup" element={<Navigate to="/student-login" replace />} />
             <Route path="/student-login" element={<StudentLoginPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/admin/signup" element={<AdminSignupPage />} />
@@ -94,7 +104,18 @@ export function App() {
             <Route path="announcements" element={<AdminAnnouncementsPage />} />
             <Route path="notifications" element={<AdminNotificationsPage />} />
             <Route path="analytics" element={<AdminAnalyticsPage />} />
+            <Route path="faculty-approvals" element={<AdminFacultyApprovalsPage />} />
             <Route path="settings" element={<AdminSettingsPage />} />
+          </Route>
+
+          {/* HOD / Institutional Governance Routes */}
+          <Route path="/hod" element={<HodLayout />}>
+            <Route index element={<HodDashboardPage />} />
+            <Route path="admin-approvals" element={<HodAdminApprovalsPage />} />
+            <Route path="approvals" element={<HodAdminApprovalsPage />} />
+            <Route path="administrators" element={<HodAdministratorsPage />} />
+            <Route path="students" element={<HodStudentsPage />} />
+            <Route path="audit-log" element={<HodAuditLogPage />} />
           </Route>
 
           {/* Fallback */}

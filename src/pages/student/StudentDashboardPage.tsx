@@ -524,7 +524,7 @@ export const StudentDashboardPage: React.FC = () => {
                     <div>
                       <span className="text-[10px] uppercase font-bold text-slate-400 block">Event Date:</span>
                       <span className="text-slate-800 font-medium block">
-                        {part.hackathon ? new Date(part.hackathon.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'TBD'}
+                        {part.hackathon?.eventStart ? new Date(part.hackathon.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'TBD'}
                       </span>
                     </div>
                     <div>

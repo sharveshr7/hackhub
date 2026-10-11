@@ -1,10 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
+import { registrationService } from '../../services/registrationService';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { EmptyState } from '../../components/common/EmptyState';
 import { PageHeader } from '../../components/common/PageHeader';
 import { Modal } from '../../components/common/Modal';
+import { Button } from '../../components/common/Button';
+import { Input, Textarea } from '../../components/common/Input';
+import { useToast } from '../../components/common/Toast';
 import { Registration } from '../../types';
 import {
   Calendar,
@@ -20,7 +24,11 @@ import {
   Clock,
   Printer,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Globe,
+  Shield,
+  Edit,
+  Save
 } from 'lucide-react';
 
 export const StudentRegistrationsPage: React.FC = () => {
@@ -30,9 +38,18 @@ export const StudentRegistrationsPage: React.FC = () => {
   const teams = useAppStore((state) => state.teams);
   const submissions = useAppStore((state) => state.submissions);
   const certificates = useAppStore((state) => state.certificates);
+  const { addToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'UPCOMING' | 'COMPLETED'>('ACTIVE');
   const [selectedPass, setSelectedPass] = useState<Registration | null>(null);
+
+  // External Opportunity Status Update Modal State
+  const [updateTargetReg, setUpdateTargetReg] = useState<Registration | null>(null);
+  const [newExternalStatus, setNewExternalStatus] = useState<
+    'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'WON' | 'WITHDRAWN'
+  >('APPLIED_EXTERNALLY');
+  const [externalNotes, setExternalNotes] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const studentRegistrations = useMemo(() => {
     return registrations.filter((r) => currentUser && r.studentId === currentUser.uid);
@@ -49,8 +66,8 @@ export const StudentRegistrationsPage: React.FC = () => {
       const hackathon = hackathons.find((h) => h.id === reg.hackathonId);
       if (!hackathon) return;
 
-      const eventStart = new Date(hackathon.eventStart);
-      const eventEnd = new Date(hackathon.eventEnd);
+      const eventStart = new Date(hackathon.eventStart || '');
+      const eventEnd = new Date(hackathon.eventEnd || '');
       const statusUpper = String(hackathon.status).toUpperCase();
 
       if (statusUpper === 'COMPLETED' || now > eventEnd) {
@@ -65,6 +82,25 @@ export const StudentRegistrationsPage: React.FC = () => {
 
     return { active, upcoming, completed };
   }, [studentRegistrations, hackathons]);
+
+  const handleUpdateExternalStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!updateTargetReg) return;
+    setIsUpdatingStatus(true);
+    try {
+      await registrationService.updateExternalTrackingStatus(
+        updateTargetReg.id,
+        newExternalStatus,
+        externalNotes
+      );
+      addToast('External participation status updated successfully!', 'success');
+      setUpdateTargetReg(null);
+    } catch (err: any) {
+      addToast(err.message || 'Failed to update status', 'error');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
 
   const currentList =
     activeTab === 'ACTIVE'
@@ -156,6 +192,13 @@ export const StudentRegistrationsPage: React.FC = () => {
               (c) => c.hackathonId === reg.hackathonId && c.studentId === currentUser?.uid
             );
 
+            const isExt = Boolean(
+              reg.isExternal ||
+              hackathon?.isExternal ||
+              (hackathon?.organizerType && hackathon.organizerType !== 'OUR_COLLEGE')
+            );
+            const officialUrl = hackathon?.officialUrl || hackathon?.externalRegistrationUrl;
+
             // Compute participation status
             let participationStatus = 'Registered';
             if (hackathon?.status === 'COMPLETED' || activeTab === 'COMPLETED') {
@@ -175,19 +218,26 @@ export const StudentRegistrationsPage: React.FC = () => {
                 <div className="space-y-3 flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2.5">
                     {/* Participation Status Badge */}
-                    <span
-                      className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                        participationStatus === 'Completed'
-                          ? 'bg-purple-50 text-purple-700 border-purple-200'
-                          : participationStatus === 'Submitted'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : participationStatus === 'Participating'
-                          ? 'bg-blue-50 text-blue-700 border-blue-200'
-                          : 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                      }`}
-                    >
-                      {participationStatus}
-                    </span>
+                    {isExt ? (
+                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-amber-50 text-amber-800 border-amber-200 flex items-center gap-1">
+                        <Globe className="w-3 h-3 text-amber-600" />
+                        <span>Campus Tracked (External)</span>
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                          participationStatus === 'Completed'
+                            ? 'bg-purple-50 text-purple-700 border-purple-200'
+                            : participationStatus === 'Submitted'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : participationStatus === 'Participating'
+                            ? 'bg-blue-50 text-blue-700 border-blue-200'
+                            : 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                        }`}
+                      >
+                        {participationStatus}
+                      </span>
+                    )}
 
                     <span className="font-mono text-xs font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
                       {reg.registrationNumber}
@@ -216,13 +266,13 @@ export const StudentRegistrationsPage: React.FC = () => {
                     <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block flex items-center gap-1">
                         <Users className="w-3 h-3 text-indigo-500" />
-                        Team
+                        {isExt ? 'Participation' : 'Team'}
                       </span>
                       <span className="font-bold text-slate-800 truncate block mt-0.5">
-                        {team ? team.name : 'Not Formed'}
+                        {isExt ? (team ? team.name : 'Individual / External Squad') : (team ? team.name : 'Not Formed')}
                       </span>
                       <span className="text-[10px] text-slate-500">
-                        {team ? `${team.members?.length || 1} Members` : 'Join / Create'}
+                        {isExt ? 'External Entry' : team ? `${team.members?.length || 1} Members` : 'Join / Create'}
                       </span>
                     </div>
 
@@ -230,13 +280,15 @@ export const StudentRegistrationsPage: React.FC = () => {
                     <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80">
                       <span className="text-[10px] uppercase font-bold text-slate-400 block flex items-center gap-1">
                         <FileText className="w-3 h-3 text-blue-500" />
-                        Submission
+                        {isExt ? 'Progress' : 'Submission'}
                       </span>
                       <span className="font-bold text-slate-800 truncate block mt-0.5">
-                        {submission ? submission.status : 'Pending'}
+                        {isExt
+                          ? (reg.externalStatus ? reg.externalStatus.replace('_', ' ') : 'APPLIED')
+                          : (submission ? submission.status : 'Pending')}
                       </span>
-                      <span className="text-[10px] text-slate-500">
-                        {submission?.title ? submission.title : 'No project yet'}
+                      <span className="text-[10px] text-slate-500 truncate block">
+                        {isExt ? (reg.externalNotes || 'External portal') : submission?.title ? submission.title : 'No project yet'}
                       </span>
                     </div>
 
@@ -247,14 +299,20 @@ export const StudentRegistrationsPage: React.FC = () => {
                         Result
                       </span>
                       <span className="font-bold text-slate-800 truncate block mt-0.5">
-                        {submission?.status === 'EVALUATED' || submission?.status === 'WINNER'
+                        {isExt
+                          ? reg.externalStatus === 'WON'
+                            ? 'Award / Winner'
+                            : reg.externalStatus === 'COMPLETED'
+                            ? 'Completed'
+                            : 'In Progress'
+                          : submission?.status === 'EVALUATED' || submission?.status === 'WINNER'
                           ? 'Evaluated'
                           : submission
                           ? 'Under Review'
                           : 'Awaiting Submission'}
                       </span>
                       <span className="text-[10px] text-slate-500">
-                        {submission?.evaluations?.length ? 'Jury Scored' : 'Pending Jury'}
+                        {isExt ? 'Host Evaluation' : submission?.evaluations?.length ? 'Jury Scored' : 'Pending Jury'}
                       </span>
                     </div>
 
@@ -283,35 +341,77 @@ export const StudentRegistrationsPage: React.FC = () => {
 
                 {/* Right Actions */}
                 <div className="flex flex-wrap items-center gap-2 shrink-0 self-stretch md:self-auto justify-end">
-                  <button
-                    onClick={() => setSelectedPass(reg)}
-                    className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <QrCode className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Hall Pass</span>
-                  </button>
+                  {isExt ? (
+                    <>
+                      {officialUrl && (
+                        <a
+                          href={officialUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-navy-950 text-xs font-bold transition-all inline-flex items-center gap-1.5 shadow-xs"
+                        >
+                          <span>Official Portal</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                      <button
+                        onClick={() => {
+                          setUpdateTargetReg(reg);
+                          setNewExternalStatus(reg.externalStatus || 'APPLIED_EXTERNALLY');
+                          setExternalNotes(reg.externalNotes || '');
+                        }}
+                        className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Update Status</span>
+                      </button>
+                      <button
+                        onClick={() => setSelectedPass(reg)}
+                        className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Shield className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Campus Record</span>
+                      </button>
+                      <Link
+                        to={`/hackathons/${reg.hackathonId}`}
+                        className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1"
+                      >
+                        <span>Details</span>
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setSelectedPass(reg)}
+                        className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Hall Pass</span>
+                      </button>
 
-                  <Link
-                    to={`/hackathons/${reg.hackathonId}`}
-                    className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1"
-                  >
-                    <span>Event Details</span>
-                    <ExternalLink className="w-3 h-3 text-slate-400" />
-                  </Link>
+                      <Link
+                        to={`/hackathons/${reg.hackathonId}`}
+                        className="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-all inline-flex items-center gap-1"
+                      >
+                        <span>Event Details</span>
+                        <ExternalLink className="w-3 h-3 text-slate-400" />
+                      </Link>
 
-                  <Link
-                    to="/student/team"
-                    className="px-3.5 py-2 rounded-lg bg-navy-900 hover:bg-navy-800 text-white text-xs font-semibold shadow-xs transition-all"
-                  >
-                    Manage Squad
-                  </Link>
+                      <Link
+                        to="/student/team"
+                        className="px-3.5 py-2 rounded-lg bg-navy-900 hover:bg-navy-800 text-white text-xs font-semibold shadow-xs transition-all"
+                      >
+                        Manage Squad
+                      </Link>
 
-                  <Link
-                    to="/student/submissions"
-                    className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-all"
-                  >
-                    {submission ? 'View Submission' : 'Submit Project'}
-                  </Link>
+                      <Link
+                        to="/student/submissions"
+                        className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-all"
+                      >
+                        {submission ? 'View Submission' : 'Submit Project'}
+                      </Link>
+                    </>
+                  )}
                 </div>
               </div>
             );
@@ -319,26 +419,26 @@ export const StudentRegistrationsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Hall Pass Modal */}
+      {/* Hall Pass & Campus Verification Record Modal */}
       {selectedPass && (
         <Modal
           isOpen={Boolean(selectedPass)}
           onClose={() => setSelectedPass(null)}
-          title="Collegiate Hackathon Hall Pass"
+          title={selectedPass.isExternal ? "Campus Participation Record" : "Collegiate Hackathon Hall Pass"}
           maxWidth="md"
         >
           <div className="p-6 rounded-xl bg-gradient-to-br from-navy-950 to-blue-950 text-white text-center space-y-4 shadow-elevated border border-navy-800">
             <div className="flex items-center justify-between border-b border-white/10 pb-3 text-left">
               <div>
                 <p className="text-[10px] uppercase font-bold text-cyan-400 tracking-wider">
-                  KIT HACKATHON PASS
+                  {selectedPass.isExternal ? 'EXTERNAL OPPORTUNITY TRACKING' : 'KIT HACKATHON PASS'}
                 </p>
                 <h4 className="font-bold text-sm text-white">
                   {hackathons.find((h) => h.id === selectedPass.hackathonId)?.title}
                 </h4>
               </div>
               <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-cyan-400">
-                <QrCode className="w-5 h-5" />
+                {selectedPass.isExternal ? <Globe className="w-5 h-5" /> : <QrCode className="w-5 h-5" />}
               </div>
             </div>
 
@@ -358,14 +458,24 @@ export const StudentRegistrationsPage: React.FC = () => {
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-semibold block">Department</span>
-                <span className="font-semibold text-white">{currentUser?.studentData?.department}</span>
-                <span className="text-[10px] text-slate-300 block">{currentUser?.studentData?.year}</span>
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block">
+                  {selectedPass.isExternal ? 'Conducting Body' : 'Department'}
+                </span>
+                <span className="font-semibold text-white truncate block">
+                  {selectedPass.isExternal
+                    ? hackathons.find((h) => h.id === selectedPass.hackathonId)?.organizer || 'External'
+                    : currentUser?.studentData?.department}
+                </span>
+                <span className="text-[10px] text-slate-300 block">
+                  {selectedPass.isExternal ? 'Campus Monitored' : currentUser?.studentData?.year}
+                </span>
               </div>
             </div>
 
-            <p className="text-[10px] text-slate-400">
-              Present this digital pass alongside your College ID card at the entry verification desk.
+            <p className="text-[10px] text-slate-400 leading-relaxed">
+              {selectedPass.isExternal
+                ? 'This record certifies that student participation in this external opportunity is logged with college coordinators for credit and award tracking. Official participation is governed by the external host portal.'
+                : 'Present this digital pass alongside your College ID card at the entry verification desk.'}
             </p>
           </div>
 
@@ -375,7 +485,7 @@ export const StudentRegistrationsPage: React.FC = () => {
               className="px-3.5 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold hover:bg-slate-50 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print Hall Pass</span>
+              <span>Print Record</span>
             </button>
             <button
               onClick={() => setSelectedPass(null)}
@@ -384,6 +494,70 @@ export const StudentRegistrationsPage: React.FC = () => {
               Done
             </button>
           </div>
+        </Modal>
+      )}
+
+      {/* External Participation Status Update Modal */}
+      {updateTargetReg && (
+        <Modal
+          isOpen={Boolean(updateTargetReg)}
+          onClose={() => setUpdateTargetReg(null)}
+          title="Update External Participation Progress"
+          maxWidth="md"
+        >
+          <form onSubmit={handleUpdateExternalStatus} className="space-y-4 py-1 text-xs">
+            <p className="text-slate-600">
+              Keep your departmental coordinators updated on your progress in{' '}
+              <strong>{hackathons.find((h) => h.id === updateTargetReg.hackathonId)?.title}</strong>.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Current Participation Status
+              </label>
+              <select
+                value={newExternalStatus}
+                onChange={(e) => setNewExternalStatus(e.target.value as any)}
+                className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+              >
+                <option value="APPLIED_EXTERNALLY">Applied / Registered on Organizer Portal</option>
+                <option value="PARTICIPATING">Actively Participating / Building Solution</option>
+                <option value="COMPLETED">Completed / Submitted Project to Host</option>
+                <option value="WON">Won Award / Special Recognition / Cash Prize</option>
+                <option value="WITHDRAWN">Withdrawn</option>
+              </select>
+            </div>
+
+            <div>
+              <Textarea
+                label="Progress Details / Notes / Achievements (Optional)"
+                value={externalNotes}
+                onChange={(e) => setExternalNotes(e.target.value)}
+                rows={3}
+                placeholder="e.g. Qualified for round 2 finals, submitted project on GitHub, won 2nd runner-up prize..."
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setUpdateTargetReg(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={isUpdatingStatus}
+                leftIcon={<Save className="w-3.5 h-3.5" />}
+              >
+                Save Progress to Firestore
+              </Button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

@@ -31,6 +31,7 @@ import {
 
 export const AdminLayout: React.FC = () => {
   const currentUser = useAppStore((state) => state.currentUser);
+  const admins = useAppStore((state) => state.admins);
   const logout = useAppStore((state) => state.logout);
   const location = useLocation();
   const navigate = useNavigate();
@@ -40,6 +41,7 @@ export const AdminLayout: React.FC = () => {
   const profileDropdownRef = useRef<HTMLDivElement>(null);
 
   const isLoadingAuth = useAppStore((state) => state.isLoadingAuth);
+  const pendingApprovalsCount = admins.filter((a) => a.approvalStatus === 'PENDING').length;
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -62,12 +64,12 @@ export const AdminLayout: React.FC = () => {
     );
   }
 
-  // Strict Security Check: Authenticated & Admin Role Required
+  // Strict Security Check: Authenticated & Admin or HOD Role Required
   if (!currentUser) {
     return <Navigate to="/admin/login" state={{ from: location }} replace />;
   }
 
-  if (currentUser.role !== 'ADMIN') {
+  if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HOD') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 p-6">
         <div className="bg-white p-8 rounded-xl border border-rose-200 shadow-sm max-w-md text-center">
@@ -131,7 +133,18 @@ export const AdminLayout: React.FC = () => {
       title: 'ANALYTICS & REPORTS',
       items: [
         { to: '/admin/analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },
-        { to: '/admin/attendance', label: 'Reports', icon: <UserCheck className="w-4 h-4" /> },
+        { to: '/admin/attendance', label: 'Reports', icon: <UserCheck className="w-4 h-4" /> }
+      ]
+    },
+    {
+      title: 'GOVERNANCE & ACCESS',
+      items: [
+        {
+          to: '/admin/faculty-approvals',
+          label: 'Faculty Approvals',
+          icon: <Shield className="w-4 h-4" />,
+          badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined
+        },
         { to: '/admin/settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> }
       ]
     }
@@ -236,7 +249,15 @@ export const AdminLayout: React.FC = () => {
                         <span className={`shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-cyan-400'}`}>
                           {item.icon}
                         </span>
-                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {!collapsed && <span className="truncate flex-1">{item.label}</span>}
+                        {!collapsed && (item as any).badge !== undefined && (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white leading-none shrink-0 shadow-xs">
+                            {(item as any).badge}
+                          </span>
+                        )}
+                        {collapsed && (item as any).badge !== undefined && (
+                          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-navy-950" />
+                        )}
                       </Link>
                     );
                   })}

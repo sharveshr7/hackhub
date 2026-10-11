@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../lib/store';
 import { adminService } from '../../services/adminService';
 import { Button } from '../../components/common/Button';
+import { Input } from '../../components/common/Input';
 import { Modal } from '../../components/common/Modal';
 import { useToast } from '../../components/common/Toast';
 import { PageHeader } from '../../components/common/PageHeader';
@@ -20,7 +21,9 @@ import {
   Users,
   FileText,
   Trophy,
-  Filter
+  Filter,
+  UserPlus,
+  AlertCircle
 } from 'lucide-react';
 import { Student } from '../../types';
 
@@ -36,6 +39,17 @@ export const AdminStudentsPage: React.FC = () => {
   const [selectedSubmissionStatus, setSelectedSubmissionStatus] = useState('ALL');
 
   const [viewStudent, setViewStudent] = useState<Student | null>(null);
+
+  // Student Provisioning Modal State
+  const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
+  const [provName, setProvName] = useState('');
+  const [provRegNo, setProvRegNo] = useState('');
+  const [provEmail, setProvEmail] = useState('');
+  const [provDept, setProvDept] = useState('Computer Science & Engineering');
+  const [provYear, setProvYear] = useState('1st Year');
+  const [provPhone, setProvPhone] = useState('');
+  const [isProvisioning, setIsProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
 
   const departments = [
     'Biomedical Engineering',
@@ -70,14 +84,16 @@ export const AdminStudentsPage: React.FC = () => {
       );
 
       const activeHackathons = registeredHackathons.filter((h) => {
-        const start = new Date(h.eventStart);
-        const end = new Date(h.eventEnd);
-        return (now >= start && now <= end) || h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN';
+        const start = h.eventStart ? new Date(h.eventStart) : null;
+        const end = h.eventEnd ? new Date(h.eventEnd) : null;
+        const isTimeActive = (start && end) ? (now >= start && now <= end) : false;
+        return isTimeActive || h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN';
       });
 
       const completedHackathons = registeredHackathons.filter((h) => {
-        const end = new Date(h.eventEnd);
-        return now > end || h.status === 'COMPLETED';
+        const end = h.eventEnd ? new Date(h.eventEnd) : null;
+        const isPastEnd = end ? now > end : false;
+        return isPastEnd || h.status === 'COMPLETED';
       });
 
       // Statuses
@@ -190,6 +206,34 @@ export const AdminStudentsPage: React.FC = () => {
     addToast('Student participation records exported as CSV.', 'success');
   };
 
+  const handleProvisionStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsProvisioning(true);
+    setProvisionError(null);
+
+    try {
+      const res = await adminService.provisionStudent({
+        name: provName,
+        registerNumber: provRegNo,
+        email: provEmail,
+        department: provDept,
+        year: provYear,
+        phone: provPhone
+      });
+
+      addToast(`Student ${res.registerNumber} provisioned successfully! Password setup email dispatched to ${res.email}.`, 'success');
+      setIsProvisionModalOpen(false);
+      setProvName('');
+      setProvRegNo('');
+      setProvEmail('');
+      setProvPhone('');
+    } catch (err: any) {
+      setProvisionError(err.message || 'Failed to provision student account.');
+    } finally {
+      setIsProvisioning(false);
+    }
+  };
+
   const totalRegisteredCount = enrichedStudents.filter((e) => e.isRegistered).length;
   const totalActiveCount = enrichedStudents.filter((e) => e.hasActiveParticipation).length;
   const totalSubmissionsCount = enrichedStudents.filter((e) => e.hasSubmitted).length;
@@ -208,14 +252,27 @@ export const AdminStudentsPage: React.FC = () => {
           </span>
         }
         actions={
-          <Button
-            onClick={handleExportCsv}
-            variant="outline"
-            size="sm"
-            leftIcon={<Download className="w-3.5 h-3.5" />}
-          >
-            Export Participation CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => {
+                setProvisionError(null);
+                setIsProvisionModalOpen(true);
+              }}
+              variant="primary"
+              size="sm"
+              leftIcon={<UserPlus className="w-3.5 h-3.5" />}
+            >
+              Provision Student
+            </Button>
+            <Button
+              onClick={handleExportCsv}
+              variant="outline"
+              size="sm"
+              leftIcon={<Download className="w-3.5 h-3.5" />}
+            >
+              Export Participation CSV
+            </Button>
+          </div>
         }
       />
 
@@ -522,6 +579,122 @@ export const AdminStudentsPage: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Provision Student Modal */}
+      <Modal
+        isOpen={isProvisionModalOpen}
+        onClose={() => !isProvisioning && setIsProvisionModalOpen(false)}
+        title="Provision Student Account"
+        maxWidth="md"
+      >
+        <form onSubmit={handleProvisionStudent} className="p-6 space-y-4">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Provision an authorized student account for college hackathon participation. The student will be assigned the <strong>STUDENT</strong> role and receive a secure password setup link.
+          </p>
+
+          {provisionError && (
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 flex items-start gap-2.5 text-xs text-rose-700 font-medium">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{provisionError}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Student Full Name"
+              type="text"
+              value={provName}
+              onChange={(e) => setProvName(e.target.value)}
+              placeholder="e.g. Sharvesh R"
+              required
+            />
+
+            <Input
+              label="Registration Number"
+              type="text"
+              value={provRegNo}
+              onChange={(e) => setProvRegNo(e.target.value.toUpperCase())}
+              placeholder="e.g. 717822P101"
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input
+              label="Institutional Email"
+              type="email"
+              value={provEmail}
+              onChange={(e) => setProvEmail(e.target.value)}
+              placeholder="e.g. 717822p101@kitcbe.com"
+              required
+            />
+
+            <Input
+              label="Contact Phone (Optional)"
+              type="tel"
+              value={provPhone}
+              onChange={(e) => setProvPhone(e.target.value)}
+              placeholder="+91 98765 43210"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Department
+              </label>
+              <select
+                value={provDept}
+                onChange={(e) => setProvDept(e.target.value)}
+                className="w-full py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium"
+              >
+                {departments.map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Academic Year
+              </label>
+              <select
+                value={provYear}
+                onChange={(e) => setProvYear(e.target.value)}
+                className="w-full py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium"
+              >
+                {years.map((yr) => (
+                  <option key={yr} value={yr}>
+                    {yr}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-4 border-t border-slate-100">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={() => setIsProvisionModalOpen(false)}
+              disabled={isProvisioning}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              className="flex-1"
+              isLoading={isProvisioning}
+            >
+              Provision Account
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

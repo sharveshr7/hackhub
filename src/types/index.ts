@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'STUDENT';
+export type UserRole = 'STUDENT' | 'ADMIN' | 'HOD';
 
 export type RegistrationStatus =
   | 'PENDING'
@@ -67,6 +67,22 @@ export interface EvaluationCriterion {
   description: string;
 }
 
+export type EventOrganizerType =
+  | 'OUR_COLLEGE'
+  | 'OTHER_COLLEGE'
+  | 'COMPANY'
+  | 'GOVERNMENT'
+  | 'COMMUNITY'
+  | 'OTHER';
+
+export type EventCategory =
+  | 'HACKATHON'
+  | 'COMPETITION'
+  | 'INNOVATION_CHALLENGE'
+  | 'WORKSHOP'
+  | 'CONFERENCE'
+  | 'OTHER';
+
 export interface FAQItem {
   question: string;
   answer: string;
@@ -77,65 +93,115 @@ export interface Hackathon {
   title: string;
   tagline?: string;
   shortDescription: string;
-  description: string;
-  organizer: string;
-  bannerUrl: string;
+  description?: string;
+  organizer: string; // Conducting institution or organizer name
+  organizerType?: EventOrganizerType;
+  officialUrl?: string; // Official registration or information website
+  externalRegistrationUrl?: string;
+  isExternal?: boolean;
+  contactEmail?: string;
+  contactPhone?: string;
+  bannerUrl?: string;
   category?: string;
-  registrationStart: string;
-  registrationDeadline: string;
-  eventStart: string;
-  eventEnd: string;
-  submissionDeadline: string;
-  venue: string;
-  location: string;
-  mode: 'IN_PERSON' | 'HYBRID' | 'VIRTUAL';
-  minTeamSize: number;
-  maxTeamSize: number;
+  registrationStart?: string;
+  registrationDeadline?: string;
+  eventStart?: string;
+  eventEnd?: string;
+  submissionDeadline?: string;
+  venue?: string;
+  location?: string;
+  mode: 'IN_PERSON' | 'HYBRID' | 'VIRTUAL' | 'ONLINE' | 'OFFLINE';
+  minTeamSize?: number;
+  maxTeamSize?: number;
   prizePool?: string;
   participantCount?: number;
-  eligibility: string[];
-  rules: string[];
-  prizes: Prize[];
-  problemStatements: ProblemStatement[];
-  evaluationCriteria: EvaluationCriterion[];
-  faq: FAQItem[];
+  eligibility?: string[];
+  rules?: string[];
+  prizes?: Prize[];
+  problemStatements?: ProblemStatement[];
+  evaluationCriteria?: EvaluationCriterion[];
+  faq?: FAQItem[];
   status: HackathonStatus;
-  attendanceOpen: boolean;
+  attendanceOpen?: boolean;
   attendanceCode?: string; // Secret check-in code announced at the college venue
   createdAt: string;
   updatedAt: string;
+  publishedBy?: string;
+  publisherName?: string;
 }
 
 export interface Student {
   uid: string;
   name: string;
   registerNumber: string;
+  registrationNumberNormalized?: string;
   email: string;
   phone: string;
   department: string;
   year: string;
-  role?: 'STUDENT';
+  role?: 'STUDENT' | 'student';
   avatarUrl?: string;
   bio?: string;
   skills: string[];
   accountStatus: 'active' | 'disabled';
+  createdAt?: any;
+  updatedAt?: any;
+  provisionedBy?: string;
+  provisionedAt?: any;
 }
 
 export interface Admin {
   uid: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'admin';
+  role: 'ADMIN' | 'admin' | 'HOD' | 'hod';
   designation: string;
   department: string;
   phone?: string;
   facultyId?: string;
   institution?: string;
   approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  isActive?: boolean;
+  isHod?: boolean;
+  isFirstAdmin?: boolean;
   approvedAt?: any;
   approvedBy?: string;
+  rejectedAt?: any;
+  rejectedBy?: string;
   createdAt?: any;
   updatedAt?: any;
+}
+
+export interface AuditLog {
+  id?: string;
+  actorUid: string;
+  actorEmail?: string;
+  actorName?: string;
+  actorRole?: string;
+  targetUid: string;
+  targetEmail?: string;
+  targetName?: string;
+  action:
+    | 'ADMIN_APPLICATION_SUBMITTED'
+    | 'ADMIN_APPROVED'
+    | 'ADMIN_REJECTED'
+    | 'ADMIN_DEACTIVATED'
+    | 'ADMIN_REACTIVATED'
+    | 'STUDENT_PROVISIONED'
+    | 'ROLE_CHANGED'
+    | 'HOD_PROVISIONED';
+  timestamp: any;
+  details?: Record<string, any>;
+  previousStatus?: string;
+  newStatus?: string;
+}
+
+export interface RegistrationLookup {
+  uid: string;
+  email: string;
+  registerNumber: string;
+  name?: string;
+  createdAt?: any;
 }
 
 export interface TeamMember {
@@ -173,6 +239,11 @@ export interface Registration {
   attendanceStatus?: 'PRESENT' | 'ABSENT' | 'PENDING' | 'ATTENDED';
   submissionStatus?: 'SUBMITTED' | 'PENDING' | 'EVALUATED' | 'NOT_SUBMITTED' | 'DRAFT';
   problemStatementId?: string;
+  isExternal?: boolean;
+  externalTrackingOnly?: boolean;
+  externalStatus?: 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'WON' | 'WITHDRAWN';
+  externalNotes?: string;
+  updatedAt?: string;
 }
 
 export interface Submission {

@@ -9,12 +9,11 @@ service firebase.storage {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.role == 'admin' ||
+        request.auth.token.role == 'ADMIN' ||
+        request.auth.token.role == 'HOD' ||
+        request.auth.token.role == 'hod' ||
         request.auth.token.admin == true ||
-        (request.auth.token.email != null && (
-          request.auth.token.email.matches('.*admin.*') ||
-          request.auth.token.email.matches('.*dean.*') ||
-          request.auth.token.email.matches('.*convenor.*')
-        ))
+        request.auth.token.hod == true
       );
     }
 

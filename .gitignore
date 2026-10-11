@@ -24,4 +24,11 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+# Firebase & Cloud Credentials
+serviceAccount*.json
+*adminsdk*.json
+*-credentials.json
+*.pem
+*.key
+credentials/
+scripts/credentials/

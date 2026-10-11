@@ -37,10 +37,11 @@ export const AdminLoginPage: React.FC = () => {
   const { showToast } = useToast();
   const currentUser = useAppStore((state) => state.currentUser);
 
-  // If already authenticated as Admin, redirect directly to /admin
+  // If already authenticated as Admin or HOD, redirect directly
   useEffect(() => {
-    if (currentUser?.role === 'ADMIN') {
-      const from = (location.state as any)?.from?.pathname || '/admin';
+    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD') {
+      const defaultDest = currentUser.role === 'HOD' ? '/hod' : '/admin';
+      const from = (location.state as any)?.from?.pathname || defaultDest;
       navigate(from, { replace: true });
     }
   }, [currentUser, navigate, location]);
@@ -51,9 +52,10 @@ export const AdminLoginPage: React.FC = () => {
     setError(null);
 
     try {
-      await authService.loginAdmin(email, password);
-      showToast('success', 'Admin Sign In Successful', 'Welcome to the HackHub Administrative Portal.');
-      const from = (location.state as any)?.from?.pathname || '/admin';
+      const authUser = await authService.loginAdmin(email, password);
+      showToast('success', 'Sign In Successful', 'Welcome to the HackHub Administrative Portal.');
+      const defaultDest = authUser.role === 'HOD' ? '/hod' : '/admin';
+      const from = (location.state as any)?.from?.pathname || defaultDest;
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || 'Unable to sign in. Please try again.');

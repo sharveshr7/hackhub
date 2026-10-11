@@ -5,6 +5,7 @@ interface HackathonBannerProps {
   id: string;
   title: string;
   mode?: string;
+  organizer?: string;
   className?: string;
   size?: 'sm' | 'md' | 'lg' | 'hero';
 }
@@ -13,6 +14,7 @@ export const HackathonBanner: React.FC<HackathonBannerProps> = ({
   id,
   title,
   mode,
+  organizer,
   className = '',
   size = 'md'
 }) => {
@@ -128,7 +130,7 @@ export const HackathonBanner: React.FC<HackathonBannerProps> = ({
             {title}
           </h4>
           <p className="text-[11px] text-slate-300 font-medium truncate max-w-sm mt-0.5">
-            KIT Flagship Collegiate Challenge
+            {organizer || 'Student Opportunity'}
           </p>
         </div>
 

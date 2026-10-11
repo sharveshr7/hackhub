@@ -51,15 +51,11 @@ export const LoginPage: React.FC = () => {
             </Link>
           </div>
 
-          {/* Quick Sign Up Links */}
+          {/* Faculty Application Link */}
           <div className="mt-5 text-center text-xs text-slate-500">
-            <span>Need an account? </span>
-            <Link to="/signup" className="font-semibold text-blue-600 hover:text-blue-700">
-              Student Sign Up
-            </Link>
-            <span className="mx-2 text-slate-300">•</span>
-            <Link to="/admin/signup" className="font-semibold text-navy-950 hover:text-navy-800">
-              Admin Sign Up
+            <span>Faculty seeking coordinator access? </span>
+            <Link to="/admin/signup" className="font-semibold text-navy-950 hover:text-navy-800 underline underline-offset-2">
+              Apply for Faculty Coordinator Access
             </Link>
           </div>
 

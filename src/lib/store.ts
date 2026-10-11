@@ -12,7 +12,8 @@ import {
   Certificate,
   UserRole,
   RegistrationStatus,
-  SubmissionStatus
+  SubmissionStatus,
+  AuditLog
 } from '../types';
 
 export interface CurrentUser {
@@ -40,6 +41,7 @@ interface AppStoreState {
   announcements: Announcement[];
   notifications: NotificationItem[];
   certificates: Certificate[];
+  auditLogs: AuditLog[];
 
   // Bulk Firestore Setters
   setHackathons: (hackathons: Hackathon[]) => void;
@@ -51,6 +53,8 @@ interface AppStoreState {
   setAnnouncements: (announcements: Announcement[]) => void;
   setNotifications: (notifications: NotificationItem[]) => void;
   setCertificates: (certificates: Certificate[]) => void;
+  setAuditLogs: (auditLogs: AuditLog[]) => void;
+  addAuditLog: (log: AuditLog) => void;
 
   // Hackathons Actions
   addHackathon: (hackathon: Omit<Hackathon, 'id' | 'createdAt' | 'updatedAt'>) => Hackathon;
@@ -59,6 +63,7 @@ interface AppStoreState {
 
   // Registration Actions
   registerStudent: (hackathonId: string, studentId: string) => { success: boolean; registration?: Registration; message: string };
+  updateRegistration: (id: string, updates: Partial<Registration>) => void;
   updateRegistrationStatus: (registrationId: string, status: RegistrationStatus) => void;
   markAttendance: (hackathonId: string, studentId: string, code: string) => { success: boolean; message: string };
 
@@ -106,6 +111,7 @@ export const useAppStore = create<AppStoreState>()(
       announcements: [],
       notifications: [],
       certificates: [],
+      auditLogs: [],
 
       // Direct Firebase Setters
       setHackathons: (hackathons) => set({ hackathons }),
@@ -117,6 +123,8 @@ export const useAppStore = create<AppStoreState>()(
       setAnnouncements: (announcements) => set({ announcements }),
       setNotifications: (notifications) => set({ notifications }),
       setCertificates: (certificates) => set({ certificates }),
+      setAuditLogs: (auditLogs) => set({ auditLogs }),
+      addAuditLog: (log) => set((s) => ({ auditLogs: [log, ...s.auditLogs] })),
 
       // Hackathon Operations
       addHackathon: (data) => {
@@ -155,8 +163,13 @@ export const useAppStore = create<AppStoreState>()(
         }
 
         const now = new Date();
-        const deadline = new Date(hackathon.registrationDeadline);
-        if (now > deadline || hackathon.status === 'registration_closed' || hackathon.status === 'completed') {
+        if (hackathon.registrationDeadline) {
+          const deadline = new Date(hackathon.registrationDeadline);
+          if (now > deadline) {
+            return { success: false, message: 'Registration has officially closed for this hackathon.' };
+          }
+        }
+        if (hackathon.status === 'registration_closed' || hackathon.status === 'completed') {
           return { success: false, message: 'Registration has officially closed for this hackathon.' };
         }
 
@@ -186,10 +199,18 @@ export const useAppStore = create<AppStoreState>()(
         return { success: true, registration: newReg, message: 'Registration confirmed.' };
       },
 
+      updateRegistration: (id, updates) => {
+        set((state) => ({
+          registrations: state.registrations.map((r) =>
+            r.id === id ? { ...r, ...updates, updatedAt: new Date().toISOString() } : r
+          )
+        }));
+      },
+
       updateRegistrationStatus: (registrationId, status) => {
         set((state) => ({
           registrations: state.registrations.map((r) =>
-            r.id === registrationId ? { ...r, status } : r
+            r.id === registrationId ? { ...r, status, updatedAt: new Date().toISOString() } : r
           )
         }));
       },

@@ -19,9 +19,11 @@ import {
 import { useToast } from '../../components/common/Toast';
 import { Button } from '../../components/common/Button';
 import { PageHeader } from '../../components/common/PageHeader';
+import { hackathonService } from '../../services/hackathonService';
+import { attendanceService } from '../../services/attendanceService';
 
 export const AdminAttendancePage: React.FC = () => {
-  const { hackathons, registrations, students, updateHackathon, updateRegistrationStatus } = useAppStore();
+  const { hackathons, registrations, students, currentUser, updateHackathon, updateRegistrationStatus } = useAppStore();
   const { showToast } = useToast();
 
   const [selectedHackathonId, setSelectedHackathonId] = useState<string>('all');
@@ -76,22 +78,46 @@ export const AdminAttendancePage: React.FC = () => {
     setTimeout(() => setCopiedCodeId(null), 2500);
   };
 
-  const handleToggleAttendanceOpen = (hackathonId: string, current: boolean) => {
-    updateHackathon(hackathonId, { attendanceOpen: !current });
-    showToast(
-      'success',
-      'Attendance Window Updated',
-      `Physical check-in is now ${!current ? 'OPEN' : 'CLOSED'} for this hackathon.`
-    );
+  const handleToggleAttendanceOpen = async (hackathonId: string, current: boolean) => {
+    try {
+      updateHackathon(hackathonId, { attendanceOpen: !current });
+      await hackathonService.toggleAttendance(hackathonId, !current);
+      showToast(
+        'success',
+        'Attendance Window Updated',
+        `Physical check-in is now ${!current ? 'OPEN' : 'CLOSED'} for this hackathon.`
+      );
+    } catch (err: any) {
+      showToast('error', 'Attendance Window Error', err.message || 'Failed to update attendance window.');
+    }
   };
 
-  const handleManualCheckIn = (registrationId: string, currentAttended: boolean) => {
-    if (currentAttended) {
-      updateRegistrationStatus(registrationId, 'TEAM_CONFIRMED');
-      showToast('info', 'Status Updated', 'Student attendance reverted to pending.');
-    } else {
-      updateRegistrationStatus(registrationId, 'ATTENDED');
-      showToast('success', 'Verified Present', 'Student successfully checked-in at the desk.');
+  const handleManualCheckIn = async (registrationId: string, currentAttended: boolean) => {
+    const reg = registrations.find((r) => r.id === registrationId);
+    if (!reg) return;
+
+    try {
+      if (currentAttended) {
+        updateRegistrationStatus(registrationId, 'TEAM_CONFIRMED');
+        await attendanceService.manualAttendanceOverride(
+          reg.hackathonId,
+          reg.studentId,
+          'ABSENT',
+          currentUser?.uid || 'admin'
+        );
+        showToast('info', 'Status Updated', 'Student attendance reverted to pending.');
+      } else {
+        updateRegistrationStatus(registrationId, 'ATTENDED');
+        await attendanceService.manualAttendanceOverride(
+          reg.hackathonId,
+          reg.studentId,
+          'PRESENT',
+          currentUser?.uid || 'admin'
+        );
+        showToast('success', 'Verified Present', 'Student successfully checked-in at the desk.');
+      }
+    } catch (err: any) {
+      showToast('error', 'Check-in Error', err.message || 'Failed to persist attendance change.');
     }
   };
 
@@ -223,11 +249,13 @@ export const AdminAttendancePage: React.FC = () => {
                   <div className="min-w-0">
                     <h3 className="font-bold text-navy-950 text-xs truncate">{hackathon.title}</h3>
                     <p className="text-[10px] text-slate-400">
-                      {new Date(hackathon.eventStart).toLocaleDateString([], {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })}
+                      {hackathon.eventStart
+                        ? new Date(hackathon.eventStart).toLocaleDateString([], {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          })
+                        : 'TBA'}
                     </p>
                   </div>
                   <span

@@ -67,7 +67,7 @@ export const registrationService = {
 
     // 2. Validate registration deadline & status
     const now = new Date();
-    const deadline = new Date(hackathon.registrationDeadline);
+    const deadline = new Date(hackathon.registrationDeadline || '');
     if (now > deadline || hackathon.status === 'registration_closed' || hackathon.status === 'completed') {
       return { success: false, message: 'Registration has officially closed for this challenge.' };
     }
@@ -86,7 +86,11 @@ export const registrationService = {
     // 4. Create real registration record
     const regId = `reg_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
     const randNum = Math.floor(1000 + Math.random() * 9000);
-    const registrationNumber = `HACK-2026-${randNum}`;
+    const isExt = Boolean(
+      hackathon.isExternal ||
+      (hackathon.organizerType && hackathon.organizerType !== 'OUR_COLLEGE')
+    );
+    const registrationNumber = isExt ? `EXT-TRACK-${randNum}` : `HACK-2026-${randNum}`;
 
     const newReg: Registration = {
       id: regId,
@@ -94,8 +98,11 @@ export const registrationService = {
       studentId,
       registrationNumber,
       status: 'CONFIRMED',
+      isExternal: isExt,
+      externalTrackingOnly: isExt,
+      externalStatus: isExt ? 'APPLIED_EXTERNALLY' : undefined,
       acceptedRules: true,
-      attendanceStatus: 'PENDING',
+      attendanceStatus: isExt ? 'ATTENDED' : 'PENDING',
       submissionStatus: 'NOT_SUBMITTED',
       registeredAt: new Date().toISOString()
     };
@@ -114,7 +121,9 @@ export const registrationService = {
     return {
       success: true,
       registration: newReg,
-      message: 'Registration confirmed successfully!'
+      message: isExt
+        ? 'Participation tracked for college monitoring! Remember to also complete your official registration on the host organizer portal.'
+        : 'Registration confirmed successfully!'
     };
   },
 
@@ -127,5 +136,27 @@ export const registrationService = {
       updatedAt: serverTimestamp()
     });
     useAppStore.getState().updateRegistrationStatus(id, status);
+  },
+
+  /**
+   * Update external participation status (e.g. APPLIED_EXTERNALLY, PARTICIPATING, COMPLETED, WON, WITHDRAWN)
+   */
+  async updateExternalTrackingStatus(
+    id: string,
+    externalStatus: 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'WON' | 'WITHDRAWN',
+    notes?: string
+  ): Promise<void> {
+    const updates: Partial<Registration> = {
+      externalStatus,
+      updatedAt: new Date().toISOString()
+    };
+    if (notes !== undefined) {
+      updates.externalNotes = notes;
+    }
+    await updateDoc(doc(db, 'registrations', id), {
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
+    useAppStore.getState().updateRegistration(id, updates);
   }
 };

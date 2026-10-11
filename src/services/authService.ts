@@ -105,47 +105,147 @@ export const authService = {
   },
 
   /**
-   * Log in student with email and password via Firebase Auth
+   * Log in student with either registration number OR email address + password
    */
-  async loginStudent(email: string, pass: string): Promise<CurrentUser> {
-    const userCredential = await signInWithEmailAndPassword(auth, email.trim(), pass);
+  async loginStudent(identifier: string, pass: string): Promise<CurrentUser> {
+    return this.loginStudentWithIdentifier(identifier, pass);
+  },
+
+  async loginStudentWithIdentifier(identifier: string, pass: string): Promise<CurrentUser> {
+    const rawInput = identifier.trim();
+    if (!rawInput) {
+      throw new Error('Please enter your registration number or registered email address.');
+    }
+    if (!pass) {
+      throw new Error('Please enter your password.');
+    }
+
+    let targetEmail: string = '';
+
+    if (rawInput.includes('@')) {
+      targetEmail = rawInput.toLowerCase();
+    } else {
+      // 1. Attempt trusted serverless API endpoint (/api/student-auth) first for rate limiting & secure resolution
+      let resolvedViaApi = false;
+      if (typeof window !== 'undefined' && typeof fetch === 'function') {
+        try {
+          const apiRes = await fetch('/api/student-auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: rawInput, password: pass })
+          });
+
+          if (apiRes.status === 429) {
+            const data = await apiRes.json().catch(() => ({}));
+            throw new Error(data.error || 'Too many login attempts. Please wait 1 minute before trying again.');
+          }
+
+          if (apiRes.status === 401) {
+            throw new Error('Invalid registration number or password.');
+          }
+
+          if (apiRes.ok) {
+            const data = await apiRes.json().catch(() => ({}));
+            if (data?.email) {
+              targetEmail = data.email;
+              resolvedViaApi = true;
+            }
+          }
+        } catch (apiErr: any) {
+          if (apiErr.message?.includes('Invalid') || apiErr.message?.includes('Too many')) {
+            throw apiErr;
+          }
+        }
+      }
+
+      // 2. Direct lookup fallback if API is not available
+      if (!resolvedViaApi && !targetEmail) {
+        const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
+        try {
+          const lookupSnap = await getDoc(doc(db, 'reg_lookups', cleanRegNo));
+          if (lookupSnap.exists()) {
+            targetEmail = lookupSnap.data().email;
+          } else {
+            // Fallback query to students collection
+            const regQuery = query(
+              collection(db, 'students'),
+              where('registerNumber', '==', cleanRegNo)
+            );
+            const regSnap = await getDocs(regQuery);
+            if (!regSnap.empty) {
+              targetEmail = regSnap.docs[0].data().email;
+            } else {
+              // Generic error message to prevent registration number enumeration
+              throw new Error('Invalid registration number or password.');
+            }
+          }
+        } catch (err: any) {
+          if (err.message?.includes('Invalid registration number or password')) {
+            throw err;
+          }
+          throw new Error('Invalid registration number or password.');
+        }
+      }
+    }
+
+    // Authenticate with Firebase Email/Password
+    let userCredential;
+    try {
+      userCredential = await signInWithEmailAndPassword(auth, targetEmail, pass);
+    } catch (authErr: any) {
+      if (
+        authErr.code === 'auth/invalid-credential' ||
+        authErr.code === 'auth/user-not-found' ||
+        authErr.code === 'auth/wrong-password' ||
+        authErr.code === 'auth/invalid-email'
+      ) {
+        throw new Error(
+          rawInput.includes('@')
+            ? 'Invalid email or password.'
+            : 'Invalid registration number or password.'
+        );
+      }
+      if (authErr.code === 'auth/too-many-requests') {
+        throw new Error('Too many failed sign in attempts. Please try again in a few minutes.');
+      }
+      if (authErr.code === 'auth/user-disabled') {
+        throw new Error('This student account has been disabled. Please contact college administration.');
+      }
+      throw new Error(authErr.message || 'Unable to authenticate student credentials.');
+    }
+
     const uid = userCredential.user.uid;
 
+    // Retrieve verified student profile from Firestore
     const studentSnap = await getDoc(doc(db, 'students', uid));
     if (!studentSnap.exists()) {
-      // If student account does not have Firestore document yet, auto-generate standard profile
-      const fallbackRecord: Student = {
-        uid,
-        name: email.split('@')[0].replace('.', ' ').toUpperCase(),
-        registerNumber: '717822P' + Math.floor(100 + Math.random() * 900),
-        email: email.trim().toLowerCase(),
-        phone: '',
-        department: 'Computer Science & Engineering',
-        year: '3rd Year',
-        role: 'STUDENT',
-        skills: [],
-        accountStatus: 'active'
-      };
-      await setDoc(doc(db, 'students', uid), {
-        ...fallbackRecord,
-        role: 'student',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      const currentUser: CurrentUser = {
-        uid,
-        email: email.trim().toLowerCase(),
-        role: 'STUDENT',
-        studentData: fallbackRecord
-      };
-      useAppStore.getState().setCurrentUser(currentUser);
-      return currentUser;
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error(
+        'Student profile record not found. Your account must be provisioned by college administration.'
+      );
     }
 
     const studentData = studentSnap.data() as Student;
+
+    // Verify account status
+    if (studentData.accountStatus === 'disabled' || (studentData as any).isActive === false) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('This student account has been deactivated. Please contact college administration.');
+    }
+
+    // Verify student role
+    const studentRole = (studentData.role || '').toUpperCase();
+    if (studentRole !== 'STUDENT') {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('Access denied: account does not have student authorization.');
+    }
+
     const currentUser: CurrentUser = {
       uid,
-      email: userCredential.user.email || email,
+      email: userCredential.user.email || targetEmail,
       role: 'STUDENT',
       studentData
     };
@@ -303,6 +403,21 @@ export const authService = {
       const adminData = adminSnap.data() as Admin;
       const roleUpper = (adminData.role || '').toUpperCase();
 
+      // Check for token custom claims or HOD designation
+      let tokenClaims: Record<string, any> = {};
+      try {
+        const idTokenRes = await userCredential.user.getIdTokenResult(true);
+        tokenClaims = idTokenRes.claims || {};
+      } catch (tokenErr) {
+        // ignore
+      }
+
+      const isHod =
+        tokenClaims.hod === true ||
+        tokenClaims.role === 'HOD' ||
+        adminData.isHod === true ||
+        roleUpper === 'HOD';
+
       if (adminData.approvalStatus === 'PENDING') {
         await signOut(auth);
         useAppStore.getState().logout();
@@ -319,30 +434,44 @@ export const authService = {
         );
       }
 
+      if (adminData.isActive === false || (adminData as any).accountStatus === 'deactivated') {
+        await signOut(auth);
+        useAppStore.getState().logout();
+        throw new Error('This administrator account has been deactivated. Please contact the Head of Department.');
+      }
+
       const isApproved =
         adminData.approvalStatus === 'APPROVED' ||
+        isHod ||
         (!adminData.approvalStatus && roleUpper === 'ADMIN');
 
-      if (roleUpper !== 'ADMIN' || !isApproved) {
+      if ((roleUpper !== 'ADMIN' && !isHod) || !isApproved) {
         await signOut(auth);
         useAppStore.getState().logout();
         throw new Error('This account does not have administrator access.');
       }
 
+      const effectiveRole: UserRole = isHod ? 'HOD' : 'ADMIN';
+
       const currentUser: CurrentUser = {
         uid,
         email: userCredential.user.email || email.trim().toLowerCase(),
-        role: 'ADMIN',
-        adminData
+        role: effectiveRole,
+        adminData: {
+          ...adminData,
+          role: effectiveRole,
+          isHod
+        }
       };
 
       useAppStore.getState().setCurrentUser(currentUser);
-      console.log('[AuthService] Admin sign in successful for UID:', uid);
+      console.log('[AuthService] Admin sign in successful for UID:', uid, 'Role:', effectiveRole);
       return currentUser;
     } catch (err: any) {
       if (
         err.message?.includes('pending approval') ||
         err.message?.includes('not approved') ||
+        err.message?.includes('deactivated') ||
         err.message === 'This account does not have administrator access.' ||
         err.message === 'You do not have permission to access the admin portal.'
       ) {
@@ -367,82 +496,39 @@ export const authService = {
   },
 
   /**
-   * Sign in with Google SSO
+   * Reset student password via email or registration number (safe against enumeration)
    */
-  async loginWithGoogle(role: UserRole = 'STUDENT'): Promise<CurrentUser> {
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    const uid = user.uid;
+  async resetStudentPassword(identifier: string): Promise<void> {
+    const rawInput = identifier.trim();
+    if (!rawInput) return;
 
-    if (role === 'ADMIN') {
-      const adminDocRef = doc(db, 'admins', uid);
-      const adminSnap = await getDoc(adminDocRef);
-      if (!adminSnap.exists()) {
-        await signOut(auth);
-        useAppStore.getState().logout();
-        throw new Error('You do not have permission to access the admin portal.');
-      }
-      const adminData = adminSnap.data() as Admin;
-      const roleUpper = (adminData.role || '').toUpperCase();
-      const isApproved =
-        adminData.approvalStatus === 'APPROVED' ||
-        (!adminData.approvalStatus && roleUpper === 'ADMIN');
-
-      if (roleUpper !== 'ADMIN' || !isApproved) {
-        await signOut(auth);
-        useAppStore.getState().logout();
-        throw new Error('Your faculty account is pending approval by the college administrator.');
-      }
-
-      const currentUser: CurrentUser = {
-        uid,
-        email: user.email || '',
-        role: 'ADMIN',
-        adminData
-      };
-      useAppStore.getState().setCurrentUser(currentUser);
-      return currentUser;
+    let targetEmail = '';
+    if (rawInput.includes('@')) {
+      targetEmail = rawInput.toLowerCase();
     } else {
-      const studentDocRef = doc(db, 'students', uid);
-      const studentSnap = await getDoc(studentDocRef);
-      if (!studentSnap.exists()) {
-        const autoStudent: Student = {
-          uid,
-          name: user.displayName || 'Student',
-          registerNumber: 'REG-' + uid.slice(0, 6).toUpperCase(),
-          email: user.email || '',
-          phone: '',
-          department: 'Computer Science & Engineering',
-          year: '3rd Year',
-          role: 'STUDENT',
-          skills: [],
-          accountStatus: 'active'
-        };
-        await setDoc(studentDocRef, {
-          ...autoStudent,
-          role: 'student',
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        const currentUser: CurrentUser = {
-          uid,
-          email: user.email || '',
-          role: 'STUDENT',
-          studentData: autoStudent
-        };
-        useAppStore.getState().setCurrentUser(currentUser);
-        return currentUser;
+      const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
+      try {
+        const lookupSnap = await getDoc(doc(db, 'reg_lookups', cleanRegNo));
+        if (lookupSnap.exists()) {
+          targetEmail = lookupSnap.data().email;
+        } else {
+          const regQuery = query(collection(db, 'students'), where('registerNumber', '==', cleanRegNo));
+          const regSnap = await getDocs(regQuery);
+          if (!regSnap.empty) {
+            targetEmail = regSnap.docs[0].data().email;
+          }
+        }
+      } catch (err) {
+        // Generic catch to avoid enumeration
       }
-      const studentData = studentSnap.data() as Student;
-      const currentUser: CurrentUser = {
-        uid,
-        email: user.email || '',
-        role: 'STUDENT',
-        studentData
-      };
-      useAppStore.getState().setCurrentUser(currentUser);
-      return currentUser;
+    }
+
+    if (targetEmail) {
+      try {
+        await sendPasswordResetEmail(auth, targetEmail);
+      } catch (err) {
+        // Generic catch
+      }
     }
   },
 

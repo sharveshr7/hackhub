@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
 import { hackathonService } from '../../services/hackathonService';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { Button } from '../../components/common/Button';
-import { Input } from '../../components/common/Input';
+import { Input, Textarea } from '../../components/common/Input';
 import { Modal } from '../../components/common/Modal';
 import { useToast } from '../../components/common/Toast';
 import {
@@ -28,24 +28,86 @@ import {
   Trophy,
   ExternalLink,
   ShieldCheck,
-  Check
+  Check,
+  Save,
+  UploadCloud,
+  FileDown,
+  Globe,
+  Building2,
+  Sparkles
 } from 'lucide-react';
-import { HackathonStatus } from '../../types';
+import { HackathonStatus, EventOrganizerType, Hackathon } from '../../types';
 
 export const AdminHackathonDetailPage: React.FC = () => {
   const { hackathonId } = useParams<{ hackathonId: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { hackathons, registrations, teams, submissions, students, announcements } = useAppStore();
   const { addToast } = useToast();
 
   const hackathon = hackathons.find((h) => h.id === hackathonId) || hackathons[0];
 
+  const urlTab = searchParams.get('tab') as any;
   const [activeTab, setActiveTab] = useState<
     'OVERVIEW' | 'REGISTRATIONS' | 'TEAMS' | 'SUBMISSIONS' | 'ATTENDANCE' | 'ANNOUNCEMENTS' | 'SETTINGS'
-  >('OVERVIEW');
+  >(urlTab && ['OVERVIEW', 'REGISTRATIONS', 'TEAMS', 'SUBMISSIONS', 'ATTENDANCE', 'ANNOUNCEMENTS', 'SETTINGS'].includes(urlTab) ? urlTab : 'OVERVIEW');
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as any;
+    if (tabParam && ['OVERVIEW', 'REGISTRATIONS', 'TEAMS', 'SUBMISSIONS', 'ATTENDANCE', 'ANNOUNCEMENTS', 'SETTINGS'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   const [attendanceCode, setAttendanceCode] = useState(hackathon?.attendanceCode || 'KIT26');
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Editable Form State for Simplified Publishing Schema
+  const [editTitle, setEditTitle] = useState(hackathon?.title || '');
+  const [editOrganizer, setEditOrganizer] = useState(hackathon?.organizer || '');
+  const [editOrganizerType, setEditOrganizerType] = useState<EventOrganizerType>(hackathon?.organizerType || 'OTHER_COLLEGE');
+  const [editCategory, setEditCategory] = useState<string>(hackathon?.category || 'HACKATHON');
+  const [editOfficialUrl, setEditOfficialUrl] = useState(hackathon?.officialUrl || hackathon?.externalRegistrationUrl || '');
+  const [editShortDescription, setEditShortDescription] = useState(hackathon?.shortDescription || hackathon?.description || '');
+  const [editEventStart, setEditEventStart] = useState(hackathon?.eventStart ? hackathon.eventStart.split('T')[0] : '');
+  const [editEventEnd, setEditEventEnd] = useState(hackathon?.eventEnd ? hackathon.eventEnd.split('T')[0] : '');
+  const [editRegDeadline, setEditRegDeadline] = useState(hackathon?.registrationDeadline ? hackathon.registrationDeadline.split('T')[0] : '');
+  const [editMode, setEditMode] = useState<'ONLINE' | 'OFFLINE' | 'HYBRID'>(
+    hackathon?.mode === 'VIRTUAL' ? 'ONLINE' : hackathon?.mode === 'IN_PERSON' ? 'OFFLINE' : (hackathon?.mode as any) || 'ONLINE'
+  );
+  const [editLocation, setEditLocation] = useState(hackathon?.location || hackathon?.venue || '');
+  const [editEligibility, setEditEligibility] = useState(
+    Array.isArray(hackathon?.eligibility) ? hackathon.eligibility.join(', ') : (hackathon?.eligibility || '')
+  );
+  const [editPrizeInfo, setEditPrizeInfo] = useState(hackathon?.prizePool || (hackathon?.prizes?.[0]?.reward) || '');
+  const [editBannerUrl, setEditBannerUrl] = useState(hackathon?.bannerUrl || '');
+  const [editStatus, setEditStatus] = useState<HackathonStatus>(hackathon?.status || 'REGISTRATION_OPEN');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (hackathon) {
+      setEditTitle(hackathon.title || '');
+      setEditOrganizer(hackathon.organizer || '');
+      setEditOrganizerType(hackathon.organizerType || 'OTHER_COLLEGE');
+      setEditCategory(hackathon.category || 'HACKATHON');
+      setEditOfficialUrl(hackathon.officialUrl || hackathon.externalRegistrationUrl || '');
+      setEditShortDescription(hackathon.shortDescription || hackathon.description || '');
+      setEditEventStart(hackathon.eventStart ? hackathon.eventStart.split('T')[0] : '');
+      setEditEventEnd(hackathon.eventEnd ? hackathon.eventEnd.split('T')[0] : '');
+      setEditRegDeadline(hackathon.registrationDeadline ? hackathon.registrationDeadline.split('T')[0] : '');
+      setEditMode(
+        hackathon.mode === 'VIRTUAL' ? 'ONLINE' : hackathon.mode === 'IN_PERSON' ? 'OFFLINE' : (hackathon.mode as any) || 'ONLINE'
+      );
+      setEditLocation(hackathon.location || hackathon.venue || '');
+      setEditEligibility(
+        Array.isArray(hackathon.eligibility) ? hackathon.eligibility.join(', ') : (hackathon.eligibility || '')
+      );
+      setEditPrizeInfo(hackathon.prizePool || (hackathon.prizes?.[0]?.reward) || '');
+      setEditBannerUrl(hackathon.bannerUrl || '');
+      setEditStatus(hackathon.status || 'REGISTRATION_OPEN');
+      setAttendanceCode(hackathon.attendanceCode || 'KIT26');
+    }
+  }, [hackathon?.id]);
 
   if (!hackathon) {
     return (
@@ -70,6 +132,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
   const handleStatusChange = async (newStatus: HackathonStatus) => {
     try {
       await hackathonService.updateHackathonStatus(hackathon.id, newStatus);
+      setEditStatus(newStatus);
       addToast(`Hackathon status set to ${newStatus}.`, 'success');
     } catch (err: any) {
       addToast(err.message, 'error');
@@ -86,6 +149,60 @@ export const AdminHackathonDetailPage: React.FC = () => {
       addToast(err.message, 'error');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSaveHackathon = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!editTitle.trim()) {
+      addToast('Event title is required.', 'error');
+      return;
+    }
+    if (!editOrganizer.trim()) {
+      addToast('Conducting organizer or institution is required.', 'error');
+      return;
+    }
+    if (!editOfficialUrl.trim()) {
+      addToast('Official registration or event URL is required.', 'error');
+      return;
+    }
+    if (!editShortDescription.trim()) {
+      addToast('Short description summary is required.', 'error');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const isOurCollege = editOrganizerType === 'OUR_COLLEGE';
+      const modeMapped = editMode === 'ONLINE' ? 'VIRTUAL' : editMode === 'OFFLINE' ? 'IN_PERSON' : 'HYBRID';
+      const updates: Partial<Hackathon> = {
+        title: editTitle.trim(),
+        organizer: editOrganizer.trim(),
+        organizerType: editOrganizerType,
+        category: editCategory,
+        officialUrl: editOfficialUrl.trim(),
+        externalRegistrationUrl: editOfficialUrl.trim(),
+        isExternal: !isOurCollege,
+        shortDescription: editShortDescription.trim(),
+        description: editShortDescription.trim(),
+        mode: modeMapped,
+        location: editLocation.trim() || (editMode === 'ONLINE' ? 'Virtual / Online' : 'Not specified'),
+        venue: editLocation.trim() || (editMode === 'ONLINE' ? 'Virtual / Online' : 'Not specified'),
+        eventStart: editEventStart ? new Date(editEventStart).toISOString() : '',
+        eventEnd: editEventEnd ? new Date(editEventEnd).toISOString() : (editEventStart ? new Date(editEventStart).toISOString() : ''),
+        registrationDeadline: editRegDeadline ? new Date(editRegDeadline).toISOString() : '',
+        eligibility: editEligibility.trim() ? [editEligibility.trim()] : [],
+        prizePool: editPrizeInfo.trim() || undefined,
+        bannerUrl: editBannerUrl.trim(),
+        status: editStatus
+      };
+
+      await hackathonService.updateHackathon(hackathon.id, updates);
+      addToast('Event configuration saved and persisted to Firestore.', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Failed to save event updates.', 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -115,19 +232,41 @@ export const AdminHackathonDetailPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {hackathon.status === 'DRAFT' ? (
+              <Button
+                onClick={() => handleStatusChange('REGISTRATION_OPEN')}
+                variant="primary"
+                size="sm"
+                leftIcon={<UploadCloud className="w-3.5 h-3.5" />}
+              >
+                Publish to Catalog
+              </Button>
+            ) : (
+              <Button
+                onClick={() => handleStatusChange('DRAFT')}
+                variant="outline"
+                size="sm"
+                leftIcon={<FileDown className="w-3.5 h-3.5" />}
+              >
+                Unpublish to Draft
+              </Button>
+            )}
+            {hackathon.status !== 'LIVE' && (
+              <Button
+                onClick={() => handleStatusChange('LIVE')}
+                variant="secondary"
+                size="sm"
+              >
+                Go Live
+              </Button>
+            )}
             <Button
-              onClick={() => handleStatusChange('REGISTRATION_OPEN')}
-              variant="outline"
+              onClick={() => setActiveTab('SETTINGS')}
+              variant={activeTab === 'SETTINGS' ? 'primary' : 'outline'}
               size="sm"
+              leftIcon={<Edit className="w-3.5 h-3.5" />}
             >
-              Publish
-            </Button>
-            <Button
-              onClick={() => handleStatusChange('LIVE')}
-              variant="primary"
-              size="sm"
-            >
-              Go Live
+              Edit Details
             </Button>
             <Button
               onClick={() => setIsAttendanceModalOpen(true)}
@@ -145,15 +284,15 @@ export const AdminHackathonDetailPage: React.FC = () => {
           <div>
             <span className="text-[10px] uppercase font-semibold text-slate-400 block">Event Date</span>
             <span className="font-bold text-slate-900 mt-0.5 block">
-              {new Date(hackathon.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' })}–
-              {new Date(hackathon.eventEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+              {hackathon.eventStart ? new Date(hackathon.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'TBA'}
+              {hackathon.eventEnd ? `–${new Date(hackathon.eventEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}
             </span>
           </div>
 
           <div>
             <span className="text-[10px] uppercase font-semibold text-slate-400 block">Registration Deadline</span>
             <span className="font-bold text-amber-700 mt-0.5 block">
-              {new Date(hackathon.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+              {hackathon.registrationDeadline ? new Date(hackathon.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Not specified'}
             </span>
           </div>
 
@@ -218,34 +357,38 @@ export const AdminHackathonDetailPage: React.FC = () => {
             </div>
 
             {/* Problem Statements */}
-            <div>
-              <h3 className="text-sm font-bold text-navy-950 mb-3">Problem Statement Tracks</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {hackathon.problemStatements.map((ps) => (
-                  <div key={ps.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 uppercase">
-                      {ps.domain}
-                    </span>
-                    <h4 className="font-bold text-xs text-navy-950">{ps.title}</h4>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">{ps.description}</p>
-                  </div>
-                ))}
+            {hackathon.problemStatements && hackathon.problemStatements.length > 0 && (
+              <div>
+                <h3 className="text-sm font-bold text-navy-950 mb-3">Problem Statement Tracks</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {hackathon.problemStatements.map((ps) => (
+                    <div key={ps.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800 uppercase">
+                        {ps.domain}
+                      </span>
+                      <h4 className="font-bold text-xs text-navy-950">{ps.title}</h4>
+                      <p className="text-[11px] text-slate-600 leading-relaxed">{ps.description}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Prizes */}
-            <div>
-              <h3 className="text-sm font-bold text-navy-950 mb-3">Prize Pool & Grants</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {hackathon.prizes.map((p, i) => (
-                  <div key={i} className="p-4 rounded-xl border border-slate-200 bg-white">
-                    <span className="text-[10px] uppercase font-bold text-amber-600 block">{p.title}</span>
-                    <span className="text-base font-bold text-navy-950 mt-1 block">{p.reward}</span>
-                    {p.description && <p className="text-[11px] text-slate-500 mt-1">{p.description}</p>}
-                  </div>
-                ))}
+            {hackathon.prizes && hackathon.prizes.length > 0 && (
+              <div>
+                <h3 className="text-sm font-bold text-navy-950 mb-3">Prize Pool & Grants</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {hackathon.prizes.map((p, i) => (
+                    <div key={i} className="p-4 rounded-xl border border-slate-200 bg-white">
+                      <span className="text-[10px] uppercase font-bold text-amber-600 block">{p.title}</span>
+                      <span className="text-base font-bold text-navy-950 mt-1 block">{p.reward}</span>
+                      {p.description && <p className="text-[11px] text-slate-500 mt-1">{p.description}</p>}
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -406,19 +549,271 @@ export const AdminHackathonDetailPage: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 7: Settings */}
+        {/* Tab 7: Settings & Simplified Configuration */}
         {activeTab === 'SETTINGS' && (
-          <div className="p-6 space-y-4 max-w-xl">
-            <h3 className="text-sm font-bold text-navy-950">Hackathon Configuration</h3>
-            <div className="space-y-3 text-xs">
-              <Input label="Title" value={hackathon.title} disabled />
-              <Input label="Venue" value={hackathon.venue} disabled />
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Min Team Size" value={String(hackathon.minTeamSize)} disabled />
-                <Input label="Max Team Size" value={String(hackathon.maxTeamSize)} disabled />
+          <form onSubmit={handleSaveHackathon} className="p-6 sm:p-8 space-y-8 max-w-4xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-200 gap-3">
+              <div>
+                <h3 className="text-base font-bold text-navy-950 font-display">
+                  Edit Event Configuration
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Update published details in the institutional catalog. Only 5 core fields are strictly required.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  isLoading={isSaving}
+                  leftIcon={<Save className="w-3.5 h-3.5" />}
+                >
+                  Save Changes
+                </Button>
               </div>
             </div>
-          </div>
+
+            {/* Section 1: Required Fields (5 Essential Fields) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-navy-950 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-600" />
+                  1. Core Required Information
+                </h4>
+                <span className="text-[11px] text-blue-600 font-semibold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  Required by System
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Event Title *"
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    placeholder="e.g. Smart India Hackathon 2026, CodeForge AI"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <Input
+                    label="Conducting Organizer / Institution *"
+                    value={editOrganizer}
+                    onChange={(e) => setEditOrganizer(e.target.value)}
+                    placeholder="e.g. Karpagam Institute of Technology, IIT Madras, Google Cloud"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Organizer Classification *
+                  </label>
+                  <select
+                    value={editOrganizerType}
+                    onChange={(e) => setEditOrganizerType(e.target.value as EventOrganizerType)}
+                    className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                  >
+                    <option value="OUR_COLLEGE">KIT - Our College (Internal Sprint / Hall Pass)</option>
+                    <option value="OTHER_COLLEGE">Other College / University</option>
+                    <option value="COMPANY">Industry / Corporate / Startup</option>
+                    <option value="GOVERNMENT">Government / Public Sector</option>
+                    <option value="COMMUNITY">Tech Community / DAO / Non-Profit</option>
+                    <option value="OTHER">Other Organization</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Event Category *
+                  </label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value)}
+                    className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                  >
+                    <option value="HACKATHON">Hackathon</option>
+                    <option value="COMPETITION">Coding / Tech Competition</option>
+                    <option value="INNOVATION_CHALLENGE">Innovation & Ideathon Challenge</option>
+                    <option value="WORKSHOP">Technical Workshop / Bootcamp</option>
+                    <option value="CONFERENCE">Conference / Summit</option>
+                    <option value="OTHER">Other Opportunity</option>
+                  </select>
+                </div>
+
+                <div>
+                  <Input
+                    label="Official Registration / Event Website URL *"
+                    value={editOfficialUrl}
+                    onChange={(e) => setEditOfficialUrl(e.target.value)}
+                    placeholder="https://hackathon.example.com or registration portal"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <Textarea
+                    label="Short Summary Description *"
+                    value={editShortDescription}
+                    onChange={(e) => setEditShortDescription(e.target.value)}
+                    rows={3}
+                    placeholder="Concise overview of themes, problem areas, and opportunity scope."
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Optional Information */}
+            <div className="space-y-4 pt-4 border-t border-slate-200">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-slate-400" />
+                  2. Optional Event Logistics
+                </h4>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  Leave empty if not confirmed
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div>
+                  <Input
+                    label="Event Date / Kickoff (Optional)"
+                    type="date"
+                    value={editEventStart}
+                    onChange={(e) => setEditEventStart(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Input
+                    label="Event End Date (Optional)"
+                    type="date"
+                    value={editEventEnd}
+                    onChange={(e) => setEditEventEnd(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Input
+                    label="Registration Deadline (Optional)"
+                    type="date"
+                    value={editRegDeadline}
+                    onChange={(e) => setEditRegDeadline(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Participation Mode
+                  </label>
+                  <select
+                    value={editMode}
+                    onChange={(e) => setEditMode(e.target.value as any)}
+                    className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                  >
+                    <option value="ONLINE">Online / Virtual</option>
+                    <option value="OFFLINE">Offline / In-Person</option>
+                    <option value="HYBRID">Hybrid (Both)</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Physical Location or Venue (Optional)"
+                    value={editLocation}
+                    onChange={(e) => setEditLocation(e.target.value)}
+                    placeholder="e.g. KIT Campus Auditorium / Virtual Platform"
+                  />
+                </div>
+
+                <div className="sm:col-span-3">
+                  <Input
+                    label="Eligibility Criteria (Optional)"
+                    value={editEligibility}
+                    onChange={(e) => setEditEligibility(e.target.value)}
+                    placeholder="e.g. All engineering branches, batches 2024-2028, open to college students"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <Input
+                    label="Confirmed Cash Prize or Awards (Optional)"
+                    value={editPrizeInfo}
+                    onChange={(e) => setEditPrizeInfo(e.target.value)}
+                    placeholder="e.g. ₹1,00,000 Total Prize Pool / Internships / Goodies"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Listing Status
+                  </label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as HackathonStatus)}
+                    className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
+                  >
+                    <option value="DRAFT">DRAFT (Unpublished / Internal)</option>
+                    <option value="REGISTRATION_OPEN">REGISTRATION_OPEN (Visible to Students)</option>
+                    <option value="REGISTRATION_CLOSED">REGISTRATION_CLOSED (Submissions active)</option>
+                    <option value="LIVE">LIVE (Ongoing event)</option>
+                    <option value="COMPLETED">COMPLETED (Concluded)</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-3">
+                  <Input
+                    label="Poster / Banner Image URL (Optional)"
+                    value={editBannerUrl}
+                    onChange={(e) => setEditBannerUrl(e.target.value)}
+                    placeholder="https://images.unsplash.com/... or direct image URL"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Actions Bar */}
+            <div className="pt-6 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                {editStatus === 'DRAFT' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditStatus('REGISTRATION_OPEN')}
+                    leftIcon={<UploadCloud className="w-3.5 h-3.5 text-emerald-600" />}
+                  >
+                    Set to Open Registration
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditStatus('DRAFT')}
+                    leftIcon={<FileDown className="w-3.5 h-3.5 text-amber-600" />}
+                  >
+                    Revert to Draft (Unpublish)
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isLoading={isSaving}
+                  leftIcon={<Save className="w-4 h-4" />}
+                >
+                  Save Event Configuration
+                </Button>
+              </div>
+            </div>
+          </form>
         )}
       </div>
 

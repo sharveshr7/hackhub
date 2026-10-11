@@ -22,28 +22,57 @@ export function useAuth() {
       }
 
       try {
-        // 1. Check if admin
+        // Get custom token claims if available
+        let tokenClaims: Record<string, any> = {};
+        try {
+          const idTokenResult = await fbUser.getIdTokenResult(true);
+          tokenClaims = idTokenResult.claims || {};
+        } catch (tokenErr) {
+          // ignore
+        }
+
+        // 1. Check if admin or HOD
         const adminDocRef = doc(db, 'admins', fbUser.uid);
         const adminSnap = await getDoc(adminDocRef);
 
         if (adminSnap.exists()) {
           const adminData = adminSnap.data() as Admin;
           const roleUpper = (adminData.role || '').toUpperCase();
-          const isApproved = adminData.approvalStatus === 'APPROVED' || (!adminData.approvalStatus && roleUpper === 'ADMIN');
-          if (roleUpper === 'ADMIN' && isApproved) {
+
+          const isHod =
+            tokenClaims.hod === true ||
+            tokenClaims.role === 'HOD' ||
+            adminData.isHod === true ||
+            roleUpper === 'HOD';
+
+          const isApproved =
+            adminData.approvalStatus === 'APPROVED' ||
+            isHod ||
+            (!adminData.approvalStatus && (roleUpper === 'ADMIN' || isHod));
+
+          const isActive =
+            adminData.isActive !== false &&
+            (adminData as any).accountStatus !== 'deactivated';
+
+          if (isApproved && isActive) {
+            const effectiveRole: UserRole = isHod ? 'HOD' : 'ADMIN';
             const currentAdmin: CurrentUser = {
               uid: fbUser.uid,
               email: fbUser.email || '',
-              role: 'ADMIN',
-              adminData
+              role: effectiveRole,
+              adminData: {
+                ...adminData,
+                role: effectiveRole,
+                isHod
+              }
             };
             setUser(currentAdmin);
             setCurrentUser(currentAdmin);
             setLoading(false);
             return;
           } else {
-            // Pending or rejected admin registration: do not grant admin role or permissions
-            console.warn(`[useAuth] Account ${fbUser.uid} has approvalStatus=${adminData.approvalStatus || 'PENDING'}; withholding admin permissions.`);
+            // Pending, rejected, or deactivated admin registration: do not grant admin permissions
+            console.warn(`[useAuth] Account ${fbUser.uid} has approvalStatus=${adminData.approvalStatus || 'PENDING'}, isActive=${isActive}; withholding admin permissions.`);
             setUser(null);
             setCurrentUser(null);
             setLoading(false);
@@ -57,16 +86,28 @@ export function useAuth() {
 
         if (studentSnap.exists()) {
           const studentData = studentSnap.data() as Student;
-          const currentStudent: CurrentUser = {
-            uid: fbUser.uid,
-            email: fbUser.email || '',
-            role: 'STUDENT',
-            studentData
-          };
-          setUser(currentStudent);
-          setCurrentUser(currentStudent);
-          setLoading(false);
-          return;
+          const isActive =
+            studentData.accountStatus !== 'disabled' &&
+            (studentData as any).isActive !== false;
+
+          if (isActive) {
+            const currentStudent: CurrentUser = {
+              uid: fbUser.uid,
+              email: fbUser.email || '',
+              role: 'STUDENT',
+              studentData
+            };
+            setUser(currentStudent);
+            setCurrentUser(currentStudent);
+            setLoading(false);
+            return;
+          } else {
+            console.warn(`[useAuth] Student account ${fbUser.uid} is deactivated.`);
+            setUser(null);
+            setCurrentUser(null);
+            setLoading(false);
+            return;
+          }
         }
 
         // Unprovisioned or unauthorized role
@@ -89,9 +130,10 @@ export function useAuth() {
     role: (user || storeUser)?.role || null,
     loading,
     loginStudent: authService.loginStudent,
+    loginStudentWithIdentifier: authService.loginStudentWithIdentifier,
     loginAdmin: authService.loginAdmin,
-    register: authService.registerStudent,
     resetPassword: authService.resetPassword,
+    resetStudentPassword: authService.resetStudentPassword,
     logout: authService.logout
   };
 }

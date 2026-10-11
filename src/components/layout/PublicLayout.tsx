@@ -24,12 +24,12 @@ export const PublicLayout: React.FC = () => {
                 <span className="font-display font-bold text-lg text-navy-950 tracking-tight leading-none">
                   HackHub
                 </span>
-                <span className="text-[10px] font-bold bg-navy-100 text-navy-800 px-1.5 py-0.5 rounded tracking-wider uppercase">
-                  Official Portal
+                <span className="text-[10px] font-bold bg-cyan-100 text-cyan-900 px-1.5 py-0.5 rounded tracking-wider uppercase">
+                  Discovery & Events
                 </span>
               </div>
               <span className="text-xs text-slate-500 font-medium block mt-1 tracking-normal">
-                KalaignarKarunanidhi Institute Of Technology
+                Multi-Institution Student Opportunities Platform
               </span>
             </div>
           </Link>
@@ -42,27 +42,44 @@ export const PublicLayout: React.FC = () => {
                 location.pathname === '/hackathons' ? 'text-navy-900 font-semibold' : ''
               }`}
             >
-              All Hackathons
+              Browse Opportunities
             </Link>
-            <a href="/#how-it-works" className="hover:text-navy-900 transition-colors">
-              How It Works
-            </a>
-            <a href="/#why-participate" className="hover:text-navy-900 transition-colors">
-              Why Participate
-            </a>
-            <a href="/#announcements" className="hover:text-navy-900 transition-colors">
-              Announcements
-            </a>
+            <Link
+              to="/hackathons"
+              className="hover:text-navy-900 transition-colors"
+            >
+              Hackathons & Sprints
+            </Link>
+            <Link
+              to="/hackathons"
+              className="hover:text-navy-900 transition-colors"
+            >
+              All Events
+            </Link>
           </nav>
 
           {/* Right Action */}
           <div className="flex items-center gap-3">
             {currentUser ? (
               <button
-                onClick={() => navigate(currentUser.role === 'ADMIN' ? '/admin' : '/student')}
+                onClick={() =>
+                  navigate(
+                    currentUser.role === 'HOD'
+                      ? '/hod'
+                      : currentUser.role === 'ADMIN'
+                      ? '/admin'
+                      : '/student'
+                  )
+                }
                 className="inline-flex items-center gap-2 bg-navy-900 hover:bg-navy-800 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-all"
               >
-                <span>{currentUser.role === 'ADMIN' ? 'Admin Portal' : 'Student Dashboard'}</span>
+                <span>
+                  {currentUser.role === 'HOD'
+                    ? 'HOD Portal'
+                    : currentUser.role === 'ADMIN'
+                    ? 'Admin Portal'
+                    : 'Student Dashboard'}
+                </span>
                 <ChevronRight className="w-4 h-4 text-cyan-400" />
               </button>
             ) : (
