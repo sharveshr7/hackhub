@@ -671,11 +671,37 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
 // Vercel Serverless Function Default Export
 export default async function handler(req: any, res: any) {
   if (req.method === 'GET') {
-    const diag = await getAuthDiagnostics();
+    const urlStr = req.url || '/';
+    const hasDiagnosticsQuery = urlStr.includes('diagnostics=true') || urlStr.includes('diagnostics=1');
+
+    if (hasDiagnosticsQuery) {
+      // Detailed diagnostics requested: Require administrative authorization
+      const authHeader = req.headers['authorization'];
+      if (!authHeader) {
+        return res.status(401).json({
+          error: 'Unauthorized: Administrative authorization required to view internal diagnostic telemetry.'
+        });
+      }
+
+      const verification = await verifyServerRequest(authHeader, 'ADMIN');
+      if (!verification.valid) {
+        return res.status(verification.status).json({
+          error: verification.error || 'Forbidden: Administrative privileges required.'
+        });
+      }
+
+      const diag = await getAuthDiagnostics();
+      return res.status(200).json({
+        status: 'ok',
+        service: 'HackHub Student Authentication & Verification API',
+        diagnostics: diag
+      });
+    }
+
+    // Public health check: confirms service availability without leaking internal infrastructure details
     return res.status(200).json({
       status: 'ok',
-      service: 'HackHub Student Authentication & Verification API',
-      diagnostics: diag
+      service: 'HackHub Student Authentication & Verification API'
     });
   }
 
