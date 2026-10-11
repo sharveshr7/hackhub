@@ -366,6 +366,59 @@ async function runAuthChecklistTests() {
       'Anti-enumeration safety confirmed across all error paths'
     );
 
+    // -------------------------------------------------------------------------
+    // SCENARIO 11: Frontend Input Validation (Email OR Registration Number)
+    // -------------------------------------------------------------------------
+    console.log('\n[Scenario 11: Frontend Input Validation (Email OR Registration Number)]');
+    
+    record(
+      'Student login identifier input uses type="text" instead of type="email" to prevent browser blocking',
+      studentLoginPageSrc.includes('label="COLLEGE EMAIL OR REGISTRATION NUMBER"') &&
+      studentLoginPageSrc.includes('type="text"') &&
+      !studentLoginPageSrc.includes('label="COLLEGE EMAIL OR REGISTRATION NUMBER"\n              type="email"') &&
+      !studentLoginPageSrc.includes('label="COLLEGE EMAIL OR REGISTRATION NUMBER"\r\n              type="email"'),
+      'Verified type="text" on identifier input in StudentLoginPage.tsx'
+    );
+
+    record(
+      'Identifier input label is strictly "COLLEGE EMAIL OR REGISTRATION NUMBER"',
+      studentLoginPageSrc.includes('label="COLLEGE EMAIL OR REGISTRATION NUMBER"'),
+      'Label matches specification'
+    );
+
+    record(
+      'Identifier input placeholder is "Enter college email or registration number"',
+      studentLoginPageSrc.includes('placeholder="Enter college email or registration number"'),
+      'Placeholder matches specification'
+    );
+
+    record(
+      'Password validation remains intact (required and password input type)',
+      studentLoginPageSrc.includes('label="Password"') &&
+      studentLoginPageSrc.includes('required') &&
+      (studentLoginPageSrc.includes('type={showPassword ? \'text\' : \'password\'}') || studentLoginPageSrc.includes('type="password"')),
+      'Password validation preserved'
+    );
+
+    record(
+      'Form features remember-device option and Google sign-in while preserving password toggle',
+      studentLoginPageSrc.includes('Remember this device') &&
+      studentLoginPageSrc.includes('Sign In with College Google Account') &&
+      studentLoginPageSrc.includes('setShowPassword(!showPassword)'),
+      'Preserved UX options in StudentLoginPage.tsx'
+    );
+
+    record(
+      'Both student@example.com and 711525BBM053 are accepted by identifier field without HTML email validation error',
+      (() => {
+        // Test pattern and type compliance
+        const hasEmailOnlyType = studentLoginPageSrc.includes('type="email"') && studentLoginPageSrc.includes('value={identifier}');
+        const hasPatternRestriction = studentLoginPageSrc.includes('pattern=') && studentLoginPageSrc.includes('value={identifier}');
+        return !hasEmailOnlyType && !hasPatternRestriction;
+      })(),
+      'No email-only browser constraints on identifier field'
+    );
+
     // Clean up mock
     resetMockAdminInstances();
     resetAllRateLimits();

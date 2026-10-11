@@ -597,6 +597,52 @@ export const authService = {
   },
 
   /**
+   * Google Sign-In for students with provisioned accounts
+   */
+  async loginWithGoogle(): Promise<CurrentUser> {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const userCredential = await signInWithPopup(auth, provider);
+    const uid = userCredential.user.uid;
+    const email = (userCredential.user.email || '').trim().toLowerCase();
+
+    // Verify student profile exists
+    let studentSnap = await getDoc(doc(db, 'students', uid));
+    let studentData: Student | null = null;
+    if (studentSnap.exists()) {
+      studentData = studentSnap.data() as Student;
+    } else if (email) {
+      const emailQuery = query(collection(db, 'students'), where('email', '==', email));
+      const emailSnap = await getDocs(emailQuery);
+      if (!emailSnap.empty) {
+        studentData = emailSnap.docs[0].data() as Student;
+      }
+    }
+
+    if (!studentData) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('Student profile record not found. Your account must be provisioned by college administration.');
+    }
+
+    if (studentData.accountStatus === 'disabled' || (studentData as any).isActive === false) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('This student account has been deactivated. Please contact college administration.');
+    }
+
+    const currentUser: CurrentUser = {
+      uid,
+      email,
+      role: 'STUDENT',
+      studentData
+    };
+
+    useAppStore.getState().setCurrentUser(currentUser);
+    return currentUser;
+  },
+
+  /**
    * Sign out from Firebase Authentication
    */
   async logout(): Promise<void> {
