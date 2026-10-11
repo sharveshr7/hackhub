@@ -306,6 +306,8 @@ export async function getAuthDiagnostics(): Promise<AuthDiagnostics> {
   };
 }
 
+let lastInitError: string | null = null;
+
 /**
  * Initialize and retrieve Firebase Admin instances using server credentials
  */
@@ -314,11 +316,14 @@ export async function getAdminInstances() {
     return mockAdminInstances;
   }
 
+  let currentStep = 'start';
   try {
+    currentStep = 'import_firebase_admin';
     const { getApps, initializeApp, cert } = await import('firebase-admin/app');
     const { getFirestore } = await import('firebase-admin/firestore');
     const { getAuth } = await import('firebase-admin/auth');
 
+    currentStep = 'check_existing_apps';
     const expectedProjectId = getExpectedProjectId();
 
     const existingApps = getApps();
@@ -344,35 +349,44 @@ export async function getAdminInstances() {
       process.env.GOOGLE_SERVICE_ACCOUNT;
 
     if (serviceAccountRaw) {
+      currentStep = 'parse_service_account';
       console.log(`[StudentAuth Diagnostics] Detected credentials in environment variables (raw length: ${serviceAccountRaw.length}).`);
       const { serviceAccount, format } = parseServiceAccountPayload(serviceAccountRaw);
 
       // Validate that credentials belong to the intended HackHub Firebase project
+      currentStep = 'validate_project_id';
       const credProjectId = (serviceAccount.project_id || serviceAccount.projectId || '').trim();
       if (credProjectId && credProjectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
-        console.warn(`[StudentAuth Diagnostics] Credential project_id "${credProjectId}" does not match target HackHub project "${expectedProjectId}".`);
+        const mismatchMsg = `Credential project_id "${credProjectId}" does not match target HackHub project "${expectedProjectId}".`;
+        lastInitError = `[validate_project_id] ${mismatchMsg}`;
+        console.warn(`[StudentAuth Diagnostics] ${mismatchMsg}`);
         return null;
       }
 
       // Handle private-key newline formatting correctly
+      currentStep = 'normalize_key';
       if (typeof serviceAccount.private_key === 'string') {
         serviceAccount.private_key = normalizePrivateKey(serviceAccount.private_key);
       }
 
       console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using ${format} service account for project: ${expectedProjectId}`);
 
+      currentStep = 'cert_and_initialize_app';
+      const credential = cert(serviceAccount);
       const app = initializeApp({
-        credential: cert(serviceAccount),
+        credential,
         projectId: credProjectId || expectedProjectId
       }, 'HackHubAdmin');
 
       console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
+      lastInitError = null;
       return {
         adminApp: app,
         adminDb: getFirestore(app),
         adminAuth: getAuth(app)
       };
     } else {
+      lastInitError = '[env_check] No credentials detected';
       console.log('[StudentAuth Diagnostics] No service account credentials detected in environment variables (credentialSource=NONE).');
     }
 
@@ -447,9 +461,9 @@ export async function getAdminInstances() {
       };
     }
 
-    return null;
   } catch (err: any) {
-    console.warn('[StudentAuth Diagnostics] Admin SDK initialization note:', err.message);
+    lastInitError = `[${currentStep}] ${err?.message || String(err)}`;
+    console.warn('[StudentAuth Diagnostics] Admin SDK initialization note:', lastInitError);
     return null;
   }
 }
@@ -800,6 +814,10 @@ export default async function handler(req: any, res: any) {
       }
     } else {
       res.setHeader('X-Auth-Init-Reason', 'ENVIRONMENT_VARIABLE_MISSING');
+    }
+
+    if (lastInitError) {
+      res.setHeader('X-Auth-Init-Error', lastInitError.replace(/[\r\n]/g, ' '));
     }
   }
 
