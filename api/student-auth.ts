@@ -318,10 +318,18 @@ export async function getAdminInstances() {
 
   let currentStep = 'start';
   try {
-    currentStep = 'import_firebase_admin';
+    currentStep = 'import_firebase_admin_app_and_db';
     const { getApps, initializeApp, cert } = await import('firebase-admin/app');
     const { getFirestore } = await import('firebase-admin/firestore');
-    const { getAuth } = await import('firebase-admin/auth');
+
+    let getAuthFn: any = null;
+    try {
+      currentStep = 'import_firebase_admin_auth';
+      const authModule = await import('firebase-admin/auth');
+      getAuthFn = authModule.getAuth;
+    } catch (authImportErr: any) {
+      console.warn('[StudentAuth Diagnostics] Admin Auth module import note (Firestore continues):', authImportErr.message);
+    }
 
     currentStep = 'check_existing_apps';
     const expectedProjectId = getExpectedProjectId();
@@ -333,7 +341,7 @@ export async function getAdminInstances() {
       return {
         adminApp,
         adminDb: getFirestore(adminApp),
-        adminAuth: getAuth(adminApp)
+        adminAuth: getAuthFn ? getAuthFn(adminApp) : null
       };
     }
 
@@ -383,7 +391,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuth(app)
+        adminAuth: getAuthFn ? getAuthFn(app) : null
       };
     } else {
       lastInitError = '[env_check] No credentials detected';
@@ -424,7 +432,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuth(app)
+        adminAuth: getAuthFn ? getAuthFn(app) : null
       };
     }
 
@@ -446,7 +454,7 @@ export async function getAdminInstances() {
           return {
             adminApp: app,
             adminDb: getFirestore(app),
-            adminAuth: getAuth(app)
+            adminAuth: getAuthFn ? getAuthFn(app) : null
           };
         } catch {
           // Fall back to default initialization
@@ -457,7 +465,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuth(app)
+        adminAuth: getAuthFn ? getAuthFn(app) : null
       };
     }
 
@@ -532,9 +540,38 @@ export async function verifyServerRequest(
   }
 
   try {
-    const decodedToken = await adminInstances.adminAuth.verifyIdToken(idToken, true);
-    const uid = decodedToken.uid;
-    const email = decodedToken.email;
+    let uid = '';
+    let email: string | undefined = '';
+    let tokenRole: string | undefined = undefined;
+
+    if (adminInstances.adminAuth) {
+      const decodedToken = await adminInstances.adminAuth.verifyIdToken(idToken, true);
+      uid = decodedToken.uid;
+      email = decodedToken.email;
+      tokenRole = decodedToken.role as string;
+    } else {
+      const lookupUrl = `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`;
+      const lookupRes = await fetch(lookupUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken })
+      });
+      const lookupData = (await lookupRes.json()) as any;
+      if (!lookupRes.ok || !lookupData.users || lookupData.users.length === 0) {
+        return {
+          valid: false,
+          status: 401,
+          error: 'Invalid authentication credentials.'
+        };
+      }
+      const user = lookupData.users[0];
+      uid = user.localId;
+      email = user.email;
+      try {
+        const customAttr = JSON.parse(user.customAttributes || '{}');
+        tokenRole = customAttr.role || (customAttr.admin ? 'ADMIN' : undefined);
+      } catch {}
+    }
 
     // Verify account status server-side from Firestore
     const adminDoc = await adminInstances.adminDb.collection('admins').doc(uid).get();
