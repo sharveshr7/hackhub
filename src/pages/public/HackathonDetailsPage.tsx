@@ -477,69 +477,95 @@ export const HackathonDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Official Timeline (Section 16 Requirement) */}
+            {/* Real Event Timeline & Milestones */}
             <div className="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-subtle">
               <h2 className="text-xl font-bold text-slate-900 mb-6 flex items-center gap-2">
                 <Clock className="w-5 h-5 text-blue-600" />
                 <span>Event Timeline & Milestones</span>
               </h2>
-              <div className="space-y-4 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-slate-200">
-                <div className="relative flex items-start gap-4 pl-8">
-                  <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-blue-600 border-2 border-white ring-2 ring-blue-100" />
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Phase 1: Ingestion</span>
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Registration & Roster Lock</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Submit team membership and select challenge track.</p>
-                    </div>
-                    <span className="text-xs font-semibold text-slate-700 bg-white px-3 py-1 rounded-lg border border-slate-200 shrink-0">
-                      Closes: {hackathon.registrationDeadline ? new Date(hackathon.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not specified'}
-                    </span>
-                  </div>
-                </div>
 
-                <div className="relative flex items-start gap-4 pl-8">
-                  <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-cyan-500 border-2 border-white ring-2 ring-cyan-100" />
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-wider">Phase 2: Check-in & Kickoff</span>
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Physical Attendance Verification</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Registration Desk 3, Block B. Receive computing vouchers.</p>
+              {hackathon.registrationDeadline || hackathon.eventStart || hackathon.eventEnd || hackathon.submissionDeadline ? (
+                <div className="space-y-4 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-slate-200">
+                  {hackathon.registrationStart && (
+                    <div className="relative flex items-start gap-4 pl-8">
+                      <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-blue-600 border-2 border-white ring-2 ring-blue-100" />
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Registration Opens</span>
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Participant Registration Active</h4>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-700 bg-white px-3 py-1 rounded-lg border border-slate-200 shrink-0">
+                          {new Date(hackathon.registrationStart).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs font-semibold text-slate-700 bg-white px-3 py-1 rounded-lg border border-slate-200 shrink-0">
-                      {hackathon.eventStart ? `${new Date(hackathon.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric' })} • 8:30 AM` : 'TBA'}
-                    </span>
-                  </div>
-                </div>
+                  )}
 
-                <div className="relative flex items-start gap-4 pl-8">
-                  <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-amber-500 border-2 border-white ring-2 ring-amber-100" />
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Phase 3: Code Freeze</span>
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Final Project Artifact Submission</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Upload GitHub repository, demo video, and slide deck.</p>
+                  {hackathon.registrationDeadline && (
+                    <div className="relative flex items-start gap-4 pl-8">
+                      <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-amber-500 border-2 border-white ring-2 ring-amber-100" />
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Registration Deadline</span>
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Final Date to Register</h4>
+                        </div>
+                        <span className="text-xs font-semibold text-amber-800 bg-amber-50 px-3 py-1 rounded-lg border border-amber-200 shrink-0">
+                          {new Date(hackathon.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs font-semibold text-amber-800 bg-amber-50 px-3 py-1 rounded-lg border border-amber-200 shrink-0">
-                      {(hackathon.submissionDeadline || hackathon.eventEnd) ? `${new Date(hackathon.submissionDeadline || hackathon.eventEnd || '').toLocaleDateString([], { month: 'short', day: 'numeric' })} • 12:00 PM` : 'TBA'}
-                    </span>
-                  </div>
-                </div>
+                  )}
 
-                <div className="relative flex items-start gap-4 pl-8">
-                  <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white ring-2 ring-emerald-100" />
-                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Phase 4: Grand Jury</span>
-                      <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Pitch Presentations & Awards</h4>
-                      <p className="text-xs text-slate-500 mt-0.5">Live demonstration before academic dean and industry leaders.</p>
+                  {hackathon.eventStart && (
+                    <div className="relative flex items-start gap-4 pl-8">
+                      <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-cyan-500 border-2 border-white ring-2 ring-cyan-100" />
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold text-cyan-600 uppercase tracking-wider">Event Kickoff</span>
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Competition Begins</h4>
+                        </div>
+                        <span className="text-xs font-semibold text-slate-700 bg-white px-3 py-1 rounded-lg border border-slate-200 shrink-0">
+                          {new Date(hackathon.eventStart).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200 shrink-0">
-                      {hackathon.eventEnd ? new Date(hackathon.eventEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Event Concludes'}
-                    </span>
-                  </div>
+                  )}
+
+                  {hackathon.submissionDeadline && (
+                    <div className="relative flex items-start gap-4 pl-8">
+                      <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-indigo-500 border-2 border-white ring-2 ring-indigo-100" />
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Submission Deadline</span>
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Deliverable Lock</h4>
+                        </div>
+                        <span className="text-xs font-semibold text-indigo-800 bg-indigo-50 px-3 py-1 rounded-lg border border-indigo-200 shrink-0">
+                          {new Date(hackathon.submissionDeadline).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {hackathon.eventEnd && (
+                    <div className="relative flex items-start gap-4 pl-8">
+                      <span className="absolute left-2 top-1.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white ring-2 ring-emerald-100" />
+                      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Event Concludes</span>
+                          <h4 className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5">Results & Conclusion</h4>
+                        </div>
+                        <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200 shrink-0">
+                          {new Date(hackathon.eventEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              ) : (
+                <div className="p-6 rounded-xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-500">
+                  Event milestones and schedule will be announced by the organizer.
+                </div>
+              )}
             </div>
 
             {/* Evaluation Criteria */}
@@ -606,79 +632,67 @@ export const HackathonDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Deliverables / Submission Checklist */}
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-subtle">
-              <h2 className="text-xl font-bold text-slate-900 mb-2 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-600" />
-                <span>Submission Requirements</span>
-              </h2>
-              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                All registered teams must submit their deliverables before the deadline. Incomplete submissions will not be forwarded to the evaluation jury.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">1. Source Code Repository</span>
-                  <span className="text-slate-600 block">Public GitHub/GitLab URL with clean README and setup instructions.</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">2. Working Demonstration</span>
-                  <span className="text-slate-600 block">Live deployed web/mobile demo URL or 2–3 min YouTube/Loom video demo.</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">3. Project Artifact File</span>
-                  <span className="text-slate-600 block">ZIP or PDF containing presentation pitch deck, architecture diagrams & brief.</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">4. Submission Deadline</span>
-                  <span className="font-bold text-amber-700 block">
-                    {hackathon.submissionDeadline || hackathon.eventEnd ? (
-                      new Date(hackathon.submissionDeadline || hackathon.eventEnd!).toLocaleDateString([], {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })
-                    ) : 'Not specified'} (Firm lock)
-                  </span>
-                </div>
+            {/* Participation & Submission Information */}
+            {isExternal ? (
+              <div className="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-subtle space-y-3">
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-blue-600" />
+                  <span>Participation & Submission Guidelines</span>
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  This opportunity is conducted by <strong>{hackathon.organizer}</strong>. Registrations, challenge tracks, deliverables, and judging rules are managed directly by the official host.
+                </p>
+                {officialUrl && (
+                  <div className="pt-2">
+                    <a
+                      href={officialUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-all shadow-xs"
+                    >
+                      <span>Visit Official Portal</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
               </div>
-            </div>
-
-            {/* Submission Requirements (Section 16 Requirement) */}
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-subtle">
-              <h2 className="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-600" />
-                <span>Submission Requirements</span>
-              </h2>
-              <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                All registered teams must submit their deliverables before the deadline. Incomplete submissions will not be forwarded to the evaluation jury.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">1. Source Code Repository</span>
-                  <span className="text-slate-600 block">Public GitHub/GitLab URL with clean README and setup instructions.</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">2. Working Demonstration</span>
-                  <span className="text-slate-600 block">Live deployed web/mobile demo URL or 2–3 min YouTube/Loom video demo.</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">3. Project Artifact File</span>
-                  <span className="text-slate-600 block">ZIP or PDF containing presentation pitch deck, architecture diagrams & brief.</span>
-                </div>
-                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-                  <span className="font-bold text-slate-900 block">4. Submission Deadline</span>
-                  <span className="font-bold text-amber-700 block">
-                    {(hackathon.submissionDeadline || hackathon.eventEnd)
-                      ? `${new Date(hackathon.submissionDeadline || hackathon.eventEnd || '').toLocaleDateString([], {
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-200/80 p-8 shadow-subtle">
+                <h2 className="text-xl font-bold text-slate-900 mb-2 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-blue-600" />
+                  <span>Collegiate Submission Requirements</span>
+                </h2>
+                <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                  Registered teams must submit their project deliverables through the student dashboard console before the submission deadline.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-900 block">1. Source Code Repository</span>
+                    <span className="text-slate-600 block">Public GitHub/GitLab URL with setup instructions.</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-900 block">2. Working Demonstration</span>
+                    <span className="text-slate-600 block">Live deployed web/mobile demo URL or video walkthrough.</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-900 block">3. Presentation Artifact</span>
+                    <span className="text-slate-600 block">Slide deck (PDF/PPT) outlining architecture and impact.</span>
+                  </div>
+                  <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                    <span className="font-bold text-slate-900 block">4. Submission Deadline</span>
+                    <span className="font-bold text-amber-700 block">
+                      {hackathon.submissionDeadline || hackathon.eventEnd ? (
+                        new Date(hackathon.submissionDeadline || hackathon.eventEnd!).toLocaleDateString([], {
                           month: 'short',
                           day: 'numeric',
                           year: 'numeric'
-                        })} (Firm lock)`
-                      : 'Not specified'}
-                  </span>
+                        })
+                      ) : 'Not specified'}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
             {/* FAQ */}
             {hackathon.faq && hackathon.faq.length > 0 && (
@@ -939,20 +953,22 @@ export const HackathonDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Team Size Box */}
-            <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-subtle text-xs text-slate-600">
-              <h3 className="text-base font-bold text-slate-900 mb-2">Team Parameters</h3>
-              <p className="text-slate-500 mb-3">
-                Teams must consist of at least <strong>{hackathon.minTeamSize}</strong> and at most{' '}
-                <strong>{hackathon.maxTeamSize}</strong> students.
-              </p>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <p className="font-semibold text-slate-800">Cross-Department Allowed</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Combine skills across computing, electronics, and design for maximum project efficacy.
+            {/* Team Size Box (Internal events only) */}
+            {!isExternal && Boolean(hackathon.minTeamSize || hackathon.maxTeamSize) && (
+              <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-subtle text-xs text-slate-600">
+                <h3 className="text-base font-bold text-slate-900 mb-2">Team Parameters</h3>
+                <p className="text-slate-500 mb-3">
+                  Teams must consist of at least <strong>{hackathon.minTeamSize || 1}</strong> and at most{' '}
+                  <strong>{hackathon.maxTeamSize || 4}</strong> students.
                 </p>
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <p className="font-semibold text-slate-800">Cross-Department Allowed</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Students from different departments can collaborate in a squad.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Registration Action Sidebar */}
             <div className="bg-navy-950 text-white rounded-2xl p-6 shadow-elevated">

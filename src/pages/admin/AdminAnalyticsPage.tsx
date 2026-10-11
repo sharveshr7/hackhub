@@ -84,7 +84,7 @@ export const AdminAnalyticsPage: React.FC = () => {
 
     filteredRegistrations.forEach((r) => {
       const st = studentMap.get(r.studentId);
-      const dept = st?.department || 'Computer Science & Engineering';
+      const dept = st?.department || 'Unassigned';
       counts[dept] = (counts[dept] || 0) + 1;
     });
 

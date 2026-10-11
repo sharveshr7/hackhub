@@ -43,7 +43,11 @@ export const attendanceService = {
       return { success: false, message: 'Check-in is currently CLOSED by the coordinator.' };
     }
 
-    const expectedCode = (hackathon.attendanceCode || 'KIT26').trim().toUpperCase();
+    if (!hackathon.attendanceCode || !hackathon.attendanceCode.trim()) {
+      return { success: false, message: 'Check-in passcode has not been configured by the coordinator for this event.' };
+    }
+
+    const expectedCode = hackathon.attendanceCode.trim().toUpperCase();
     if (code.trim().toUpperCase() !== expectedCode) {
       return { success: false, message: 'Invalid check-in code. Please verify the code announced by coordinators.' };
     }

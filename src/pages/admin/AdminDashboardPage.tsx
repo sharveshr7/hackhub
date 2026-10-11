@@ -175,7 +175,7 @@ export const AdminDashboardPage: React.FC = () => {
     const studentMap = new Map(students.map((s) => [s.uid, s]));
     registrations.forEach((r) => {
       const s = studentMap.get(r.studentId);
-      const dept = s?.department || 'Computer Science & Engineering';
+      const dept = s?.department || 'Unassigned';
       counts[dept] = (counts[dept] || 0) + 1;
     });
     const total = registrations.length || 1;

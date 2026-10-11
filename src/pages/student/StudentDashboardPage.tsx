@@ -809,7 +809,7 @@ export const StudentDashboardPage: React.FC = () => {
                 Physical Check-in Required
               </p>
               <p className="text-slate-600 leading-relaxed">
-                Provide the 6-character check-in code announced at the registration counter in Block B to confirm attendance for <strong>{activeHackathon?.title}</strong>.
+                Provide the check-in passcode announced at the event registration desk to confirm attendance for <strong>{activeHackathon?.title}</strong>.
               </p>
             </div>
 

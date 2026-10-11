@@ -78,6 +78,211 @@ export function resetAllRateLimits() {
   rateLimitMap.clear();
 }
 
+export interface AuthDiagnostics {
+  timestamp: string;
+  targetProjectId: string;
+  adminSdkInitialized: boolean;
+  detectedEnvVars: {
+    FIREBASE_SERVICE_ACCOUNT: boolean;
+    FIREBASE_SERVICE_ACCOUNT_KEY: boolean;
+    FIREBASE_SERVICE_ACCOUNT_JSON: boolean;
+    FIREBASE_CLIENT_EMAIL: boolean;
+    FIREBASE_PRIVATE_KEY: boolean;
+    GOOGLE_APPLICATION_CREDENTIALS: boolean;
+    FIREBASE_PROJECT_ID: boolean;
+  };
+  credentialSource: 'FIREBASE_SERVICE_ACCOUNT' | 'FIREBASE_SERVICE_ACCOUNT_KEY' | 'FIREBASE_SERVICE_ACCOUNT_JSON' | 'DISCRETE_VARS' | 'GOOGLE_APPLICATION_CREDENTIALS' | 'NONE';
+  credentialFormat: 'raw_json' | 'escaped_json' | 'base64_json' | 'double_stringified_json' | 'discrete_pem' | 'file_path' | 'none';
+  credentialProjectId: string | null;
+  clientEmailConfigured: boolean;
+  privateKeyFormatValid: boolean;
+  statusMessage: string;
+}
+
+/**
+ * Returns the normalized target HackHub Firebase Project ID
+ */
+export function getExpectedProjectId(): string {
+  return (
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_ADMIN_PROJECT_ID ||
+    process.env.VITE_FIREBASE_PROJECT_ID ||
+    FIREBASE_PROJECT_ID
+  ).trim().replace(/^["']|["']$/g, '');
+}
+
+/**
+ * Safely parses and normalizes service account payloads across various Vercel environment formats:
+ * - Direct JSON string
+ * - Escaped backslash JSON
+ * - Double-stringified JSON
+ * - Base64-encoded JSON
+ * - Outer quoted strings
+ */
+export function parseServiceAccountPayload(rawInput: string): {
+  serviceAccount: any;
+  format: 'raw_json' | 'escaped_json' | 'base64_json' | 'double_stringified_json';
+} {
+  let raw = (rawInput || '').trim();
+
+  // Strip leading/trailing surrounding quotes if wrapped
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    raw = raw.slice(1, -1).trim();
+  }
+
+  // Strip UTF-8 BOM if present
+  if (raw.charCodeAt(0) === 0xFEFF) {
+    raw = raw.slice(1).trim();
+  }
+
+  // Handle escaped quotes from shell or Vercel CLI (e.g. {\"type\": ...})
+  if (raw.includes('\\"')) {
+    try {
+      const unescaped = raw.replace(/\\"/g, '"');
+      if (unescaped.startsWith('{')) {
+        const parsed = JSON.parse(unescaped);
+        return { serviceAccount: parsed, format: 'escaped_json' };
+      }
+    } catch {
+      // Continue to next parsing strategy
+    }
+  }
+
+  // Direct JSON parse
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed === 'string' && parsed.trim().startsWith('{')) {
+        return { serviceAccount: JSON.parse(parsed.trim()), format: 'double_stringified_json' };
+      }
+      return { serviceAccount: parsed, format: 'raw_json' };
+    } catch (err: any) {
+      throw new Error(`Invalid JSON syntax in service account: ${err.message}`);
+    }
+  }
+
+  // Base64 decode attempt
+  try {
+    const decoded = Buffer.from(raw, 'base64').toString('utf8').trim();
+    if (decoded.startsWith('{')) {
+      const parsed = JSON.parse(decoded);
+      return { serviceAccount: parsed, format: 'base64_json' };
+    }
+  } catch {
+    // Not valid base64
+  }
+
+  throw new Error('Service account string is neither valid JSON nor base64-encoded JSON.');
+}
+
+/**
+ * Normalizes PEM private keys from environment variables:
+ * - Converts escaped \n to real newlines
+ * - Handles Windows \r\n
+ * - Strips accidental surrounding quotes
+ */
+export function normalizePrivateKey(rawKey: string): string {
+  let key = (rawKey || '').trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  return key.replace(/\\n/g, '\n').replace(/\\r/g, '\r');
+}
+
+/**
+ * Generates safe diagnostic report without exposing secrets or credentials
+ */
+export async function getAuthDiagnostics(): Promise<AuthDiagnostics> {
+  const targetProjectId = getExpectedProjectId();
+  const detectedEnvVars = {
+    FIREBASE_SERVICE_ACCOUNT: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+    FIREBASE_SERVICE_ACCOUNT_KEY: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY,
+    FIREBASE_SERVICE_ACCOUNT_JSON: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+    FIREBASE_CLIENT_EMAIL: !!(process.env.FIREBASE_CLIENT_EMAIL || process.env.FIREBASE_ADMIN_CLIENT_EMAIL || process.env.CLIENT_EMAIL),
+    FIREBASE_PRIVATE_KEY: !!(process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_ADMIN_PRIVATE_KEY || process.env.PRIVATE_KEY),
+    GOOGLE_APPLICATION_CREDENTIALS: !!process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    FIREBASE_PROJECT_ID: !!(process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_ADMIN_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID)
+  };
+
+  let credentialSource: AuthDiagnostics['credentialSource'] = 'NONE';
+  let credentialFormat: AuthDiagnostics['credentialFormat'] = 'none';
+  let credentialProjectId: string | null = null;
+  let clientEmailConfigured = false;
+  let privateKeyFormatValid = false;
+  let statusMessage = 'No Firebase Admin credentials detected in environment variables.';
+
+  const rawSA =
+    process.env.FIREBASE_SERVICE_ACCOUNT ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+    process.env.FIREBASE_CREDENTIALS ||
+    process.env.GOOGLE_SERVICE_ACCOUNT;
+
+  if (rawSA) {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) credentialSource = 'FIREBASE_SERVICE_ACCOUNT';
+    else if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) credentialSource = 'FIREBASE_SERVICE_ACCOUNT_KEY';
+    else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) credentialSource = 'FIREBASE_SERVICE_ACCOUNT_JSON';
+    else credentialSource = 'FIREBASE_SERVICE_ACCOUNT';
+
+    try {
+      const parsed = parseServiceAccountPayload(rawSA);
+      credentialFormat = parsed.format;
+      credentialProjectId = parsed.serviceAccount.project_id || parsed.serviceAccount.projectId || null;
+      clientEmailConfigured = typeof parsed.serviceAccount.client_email === 'string';
+      const pk = typeof parsed.serviceAccount.private_key === 'string' ? parsed.serviceAccount.private_key : '';
+      privateKeyFormatValid = pk.includes('BEGIN PRIVATE KEY') && pk.includes('END PRIVATE KEY');
+
+      if (credentialProjectId && credentialProjectId !== targetProjectId) {
+        statusMessage = `Credential project ID (${credentialProjectId}) does not match target HackHub project (${targetProjectId}).`;
+      } else if (!privateKeyFormatValid) {
+        statusMessage = 'Service account parsed successfully, but private_key lacks standard PEM headers.';
+      } else {
+        statusMessage = 'Service account credentials parsed and ready for initialization.';
+      }
+    } catch (err: any) {
+      statusMessage = `Service account detected in ${credentialSource} but malformed: ${err.message}`;
+    }
+  } else if (detectedEnvVars.FIREBASE_CLIENT_EMAIL && detectedEnvVars.FIREBASE_PRIVATE_KEY) {
+    credentialSource = 'DISCRETE_VARS';
+    credentialFormat = 'discrete_pem';
+    clientEmailConfigured = true;
+    const pk = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY || process.env.FIREBASE_ADMIN_PRIVATE_KEY || process.env.PRIVATE_KEY || '');
+    privateKeyFormatValid = pk.includes('BEGIN PRIVATE KEY') && pk.includes('END PRIVATE KEY');
+    credentialProjectId = targetProjectId;
+    statusMessage = privateKeyFormatValid
+      ? 'Discrete credentials (client email & private key) configured and ready.'
+      : 'Discrete credentials detected, but private key lacks standard PEM headers.';
+  } else if (detectedEnvVars.GOOGLE_APPLICATION_CREDENTIALS) {
+    credentialSource = 'GOOGLE_APPLICATION_CREDENTIALS';
+    credentialFormat = 'file_path';
+    statusMessage = 'Application Default Credentials configured via GOOGLE_APPLICATION_CREDENTIALS.';
+  }
+
+  let adminSdkInitialized = false;
+  try {
+    const admin = await getAdminInstances();
+    adminSdkInitialized = !!admin;
+    if (adminSdkInitialized && statusMessage.includes('ready')) {
+      statusMessage = `Firebase Admin SDK initialized successfully for project "${targetProjectId}".`;
+    }
+  } catch (err: any) {
+    statusMessage = `Initialization attempt failed: ${err.message}`;
+  }
+
+  return {
+    timestamp: new Date().toISOString(),
+    targetProjectId,
+    adminSdkInitialized,
+    detectedEnvVars,
+    credentialSource,
+    credentialFormat,
+    credentialProjectId,
+    clientEmailConfigured,
+    privateKeyFormatValid,
+    statusMessage
+  };
+}
+
 /**
  * Initialize and retrieve Firebase Admin instances using server credentials
  */
@@ -91,7 +296,7 @@ export async function getAdminInstances() {
     const { getFirestore } = await import('firebase-admin/firestore');
     const { getAuth } = await import('firebase-admin/auth');
 
-    const expectedProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID;
+    const expectedProjectId = getExpectedProjectId();
 
     const existingApps = getApps();
     const adminApp = existingApps.find(a => a.name === 'HackHubAdmin') || (existingApps.length > 0 ? existingApps[0] : null);
@@ -104,35 +309,37 @@ export async function getAdminInstances() {
       };
     }
 
-    // 1. Full JSON service account string or base64 encoded
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-      let serviceAccount: any;
-      let raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
-      if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
-        raw = raw.slice(1, -1).trim();
-      }
+    // 1. Full JSON service account string or base64 encoded across all recognized env names
+    const serviceAccountRaw =
+      process.env.FIREBASE_SERVICE_ACCOUNT ||
+      process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
+      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+      process.env.FIREBASE_CREDENTIALS ||
+      process.env.GOOGLE_SERVICE_ACCOUNT;
 
-      if (raw.startsWith('{')) {
-        serviceAccount = JSON.parse(raw);
-      } else {
-        serviceAccount = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
-      }
+    if (serviceAccountRaw) {
+      const { serviceAccount, format } = parseServiceAccountPayload(serviceAccountRaw);
 
       // Validate that credentials belong to the intended HackHub Firebase project
-      if (serviceAccount.project_id && serviceAccount.project_id !== expectedProjectId) {
-        console.warn(`[StudentAuth] Credential project_id does not match target HackHub project.`);
+      const credProjectId = (serviceAccount.project_id || serviceAccount.projectId || '').trim();
+      if (credProjectId && credProjectId !== expectedProjectId) {
+        console.warn(`[StudentAuth Diagnostics] Credential project_id "${credProjectId}" does not match target HackHub project "${expectedProjectId}".`);
         return null;
       }
 
       // Handle private-key newline formatting correctly
       if (typeof serviceAccount.private_key === 'string') {
-        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        serviceAccount.private_key = normalizePrivateKey(serviceAccount.private_key);
       }
+
+      console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using ${format} service account for project: ${expectedProjectId}`);
 
       const app = initializeApp({
         credential: cert(serviceAccount),
-        projectId: serviceAccount.project_id || expectedProjectId
+        projectId: credProjectId || expectedProjectId
       }, 'HackHubAdmin');
+
+      console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
       return {
         adminApp: app,
         adminDb: getFirestore(app),
@@ -141,21 +348,36 @@ export async function getAdminInstances() {
     }
 
     // 2. Discrete environment variables
-    if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
-      if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PROJECT_ID !== expectedProjectId) {
-        console.warn(`[StudentAuth] Discrete project_id does not match target HackHub project.`);
+    const clientEmail =
+      process.env.FIREBASE_CLIENT_EMAIL ||
+      process.env.FIREBASE_ADMIN_CLIENT_EMAIL ||
+      process.env.CLIENT_EMAIL;
+
+    const privateKeyRaw =
+      process.env.FIREBASE_PRIVATE_KEY ||
+      process.env.FIREBASE_ADMIN_PRIVATE_KEY ||
+      process.env.PRIVATE_KEY;
+
+    if (clientEmail && privateKeyRaw) {
+      const discreteProjectId = (process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_ADMIN_PROJECT_ID || '').trim();
+      if (discreteProjectId && discreteProjectId !== expectedProjectId) {
+        console.warn(`[StudentAuth Diagnostics] Discrete project_id "${discreteProjectId}" does not match target HackHub project "${expectedProjectId}".`);
         return null;
       }
 
-      const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+      const privateKey = normalizePrivateKey(privateKeyRaw);
+      console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using discrete credentials for project: ${expectedProjectId}`);
+
       const app = initializeApp({
         credential: cert({
           projectId: expectedProjectId,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          clientEmail: clientEmail.trim().replace(/^["']|["']$/g, ''),
           privateKey
         }),
         projectId: expectedProjectId
       }, 'HackHubAdmin');
+
+      console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
       return {
         adminApp: app,
         adminDb: getFirestore(app),
@@ -163,8 +385,31 @@ export async function getAdminInstances() {
       };
     }
 
-    // 3. Application Default Credentials (GCP environment)
+    // 3. Application Default Credentials (GCP / file path)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      const gCred = process.env.GOOGLE_APPLICATION_CREDENTIALS.trim();
+      // If user pasted raw JSON or base64 into GOOGLE_APPLICATION_CREDENTIALS
+      if (gCred.startsWith('{') || gCred.startsWith('"') || (!gCred.includes('/') && !gCred.includes('\\') && gCred.length > 100)) {
+        try {
+          const { serviceAccount, format } = parseServiceAccountPayload(gCred);
+          console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using ${format} payload from GOOGLE_APPLICATION_CREDENTIALS for project: ${expectedProjectId}`);
+          if (typeof serviceAccount.private_key === 'string') {
+            serviceAccount.private_key = normalizePrivateKey(serviceAccount.private_key);
+          }
+          const app = initializeApp({
+            credential: cert(serviceAccount),
+            projectId: serviceAccount.project_id || expectedProjectId
+          }, 'HackHubAdmin');
+          return {
+            adminApp: app,
+            adminDb: getFirestore(app),
+            adminAuth: getAuth(app)
+          };
+        } catch {
+          // Fall back to default initialization
+        }
+      }
+
       const app = initializeApp({ projectId: expectedProjectId }, 'HackHubAdmin');
       return {
         adminApp: app,
@@ -175,7 +420,7 @@ export async function getAdminInstances() {
 
     return null;
   } catch (err: any) {
-    console.warn('[StudentAuth] Admin SDK initialization note:', err.message);
+    console.warn('[StudentAuth Diagnostics] Admin SDK initialization note:', err.message);
     return null;
   }
 }
@@ -425,8 +670,17 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
 
 // Vercel Serverless Function Default Export
 export default async function handler(req: any, res: any) {
+  if (req.method === 'GET') {
+    const diag = await getAuthDiagnostics();
+    return res.status(200).json({
+      status: 'ok',
+      service: 'HackHub Student Authentication & Verification API',
+      diagnostics: diag
+    });
+  }
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
+    res.setHeader('Allow', 'POST, GET');
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 

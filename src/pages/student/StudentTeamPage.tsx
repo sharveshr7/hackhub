@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../../lib/store';
 import { teamService } from '../../services/teamService';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Modal } from '../../components/common/Modal';
 import { ConfirmDialog } from '../../components/common/ConfirmDialog';
+import { EmptyState } from '../../components/common/EmptyState';
 import { useToast } from '../../components/common/Toast';
 import {
   Users,
@@ -31,13 +32,22 @@ export const StudentTeamPage: React.FC = () => {
 
   const student = currentUser?.studentData;
 
-  // Selected Hackathon for team management
+  // Selected Hackathon for team management - only for hackathons student is registered for
   const studentRegs = registrations.filter((r) => r.studentId === student?.uid);
+  const registeredHackathonIds = new Set(studentRegs.map((r) => r.hackathonId));
+  const registeredHackathons = hackathons.filter((h) => registeredHackathonIds.has(h.id));
+
   const [selectedHackathonId, setSelectedHackathonId] = useState<string>(
-    studentRegs[0]?.hackathonId || hackathons[0]?.id || ''
+    registeredHackathons[0]?.id || ''
   );
 
-  const currentHackathon = hackathons.find((h) => h.id === selectedHackathonId) || hackathons[0];
+  useEffect(() => {
+    if (registeredHackathons.length > 0 && !registeredHackathons.some((h) => h.id === selectedHackathonId)) {
+      setSelectedHackathonId(registeredHackathons[0].id);
+    }
+  }, [registeredHackathons, selectedHackathonId]);
+
+  const currentHackathon = registeredHackathons.find((h) => h.id === selectedHackathonId) || registeredHackathons[0];
 
   // Find team for this student in this hackathon
   const currentTeam = teams.find(
@@ -207,6 +217,35 @@ export const StudentTeamPage: React.FC = () => {
     }
   };
 
+  if (!currentHackathon) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold text-blue-600 mb-1">
+              <span>KIT CAMPUS HACKATHON SYSTEM</span>
+              <span>•</span>
+              <span>STUDENT TEAM MANAGEMENT</span>
+            </div>
+            <h1 className="text-2xl font-bold font-display text-navy-950">
+              My Team
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Form squads, invite classmates, assign technical roles, and coordinate deliverables for official campus challenges.
+            </p>
+          </div>
+        </div>
+
+        <EmptyState
+          title="No Active Event Registrations"
+          description="You are not registered for any events yet. Register for an event to create or join a team squad."
+          actionText="Browse Events"
+          onAction={() => window.location.assign('/student/hackathons')}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Top Header & Hackathon Context (Section 18) */}
@@ -227,20 +266,22 @@ export const StudentTeamPage: React.FC = () => {
           </div>
 
           {/* Hackathon Selector */}
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-xs font-semibold text-slate-500">Selected Event:</span>
-            <select
-              value={selectedHackathonId}
-              onChange={(e) => setSelectedHackathonId(e.target.value)}
-              className="py-1.5 px-3 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600 max-w-[240px]"
-            >
-              {hackathons.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.title}
-                </option>
-              ))}
-            </select>
-          </div>
+          {registeredHackathons.length > 1 && (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-xs font-semibold text-slate-500">Selected Event:</span>
+              <select
+                value={selectedHackathonId}
+                onChange={(e) => setSelectedHackathonId(e.target.value)}
+                className="py-1.5 px-3 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600 max-w-[240px]"
+              >
+                {registeredHackathons.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* 6 Essential Metadata Cards (Section 18 Requirement) */}

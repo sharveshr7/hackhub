@@ -57,8 +57,7 @@ export const StudentSubmissionsPage: React.FC = () => {
   // Active hackathon & team
   const studentRegs = registrations.filter((r) => r.studentId === student?.uid);
   const currentHackathon =
-    hackathons.find((h) => studentRegs.some((r) => r.hackathonId === h.id)) ||
-    (hackathons.length > 0 ? hackathons[0] : null);
+    hackathons.find((h) => studentRegs.some((r) => r.hackathonId === h.id)) || null;
 
   const currentTeam = teams.find(
     (t) => t.hackathonId === currentHackathon?.id && t.members?.some((m) => m.studentId === student?.uid)

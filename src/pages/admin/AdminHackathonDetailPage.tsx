@@ -58,7 +58,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  const [attendanceCode, setAttendanceCode] = useState(hackathon?.attendanceCode || 'KIT26');
+  const [attendanceCode, setAttendanceCode] = useState(hackathon?.attendanceCode || '');
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -105,7 +105,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
       setEditPrizeInfo(hackathon.prizePool || (hackathon.prizes?.[0]?.reward) || '');
       setEditBannerUrl(hackathon.bannerUrl || '');
       setEditStatus(hackathon.status || 'REGISTRATION_OPEN');
-      setAttendanceCode(hackathon.attendanceCode || 'KIT26');
+      setAttendanceCode(hackathon.attendanceCode || '');
     }
   }, [hackathon?.id]);
 
@@ -274,7 +274,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
               size="sm"
               leftIcon={<QrCode className="w-3.5 h-3.5" />}
             >
-              Check-in Code ({hackathon.attendanceCode || 'KIT26'})
+              Check-in Code {hackathon.attendanceCode ? `(${hackathon.attendanceCode})` : '(Not Set)'}
             </Button>
           </div>
         </div>
@@ -515,7 +515,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Active Check-in Code:</span>
-                <span className="font-mono font-bold text-navy-950">{hackathon.attendanceCode || 'KIT26'}</span>
+                <span className="font-mono font-bold text-navy-950">{hackathon.attendanceCode || 'Not Set'}</span>
               </div>
             </div>
 

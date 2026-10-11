@@ -306,18 +306,22 @@ export const AdminAttendancePage: React.FC = () => {
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-medium">Passcode:</span>
-                  <button
-                    onClick={() => handleCopyPasscode(hackathon.id, hackathon.attendanceCode || 'KIT-NEXUS-2026')}
-                    className="flex items-center gap-1 font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 transition-colors"
-                    title="Click to copy venue passcode"
-                  >
-                    <span>{hackathon.attendanceCode || 'KIT-NEXUS-2026'}</span>
-                    {copiedCodeId === hackathon.id ? (
-                      <Check className="w-3 h-3 text-emerald-600" />
-                    ) : (
-                      <Copy className="w-3 h-3 text-blue-500" />
-                    )}
-                  </button>
+                  {hackathon.attendanceCode ? (
+                    <button
+                      onClick={() => handleCopyPasscode(hackathon.id, hackathon.attendanceCode!)}
+                      className="flex items-center gap-1 font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 transition-colors"
+                      title="Click to copy venue passcode"
+                    >
+                      <span>{hackathon.attendanceCode}</span>
+                      {copiedCodeId === hackathon.id ? (
+                        <Check className="w-3 h-3 text-emerald-600" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-blue-500" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="text-[11px] text-slate-400 italic">Not set</span>
+                  )}
                 </div>
 
                 <Button

@@ -4,24 +4,45 @@ import { handleStudentAuth } from './api/student-auth.ts'
 
 function apiDevServerPlugin(): Plugin {
   const handler = async (req: any, res: any, next: any) => {
-    if (req.url === '/api/student-auth' && req.method === 'POST') {
-      let bodyStr = '';
-      req.on('data', (chunk: any) => { bodyStr += chunk; });
-      req.on('end', async () => {
+    if (req.url?.startsWith('/api/student-auth')) {
+      if (req.method === 'GET') {
         try {
-          const body = bodyStr ? JSON.parse(bodyStr) : {};
-          const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1').toString();
-          const result = await handleStudentAuth(body, clientIp);
-          res.statusCode = result.status;
+          const { getAuthDiagnostics } = await import('./api/student-auth.ts');
+          const diag = await getAuthDiagnostics();
+          res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify(result.body));
+          res.end(JSON.stringify({
+            status: 'ok',
+            service: 'HackHub Student Authentication & Verification API',
+            diagnostics: diag
+          }));
         } catch (err: any) {
           res.statusCode = 500;
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ error: err.message || 'Server error' }));
         }
-      });
-      return;
+        return;
+      }
+
+      if (req.method === 'POST') {
+        let bodyStr = '';
+        req.on('data', (chunk: any) => { bodyStr += chunk; });
+        req.on('end', async () => {
+          try {
+            const body = bodyStr ? JSON.parse(bodyStr) : {};
+            const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1').toString();
+            const result = await handleStudentAuth(body, clientIp);
+            res.statusCode = result.status;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify(result.body));
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: err.message || 'Server error' }));
+          }
+        });
+        return;
+      }
     }
     next();
   };

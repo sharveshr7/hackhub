@@ -222,7 +222,11 @@ export const useAppStore = create<AppStoreState>()(
           return { success: false, message: 'Hackathon not found.' };
         }
 
-        if (code.trim().toUpperCase() !== (hackathon.attendanceCode || 'KIT26').trim().toUpperCase()) {
+        if (!hackathon.attendanceCode || !hackathon.attendanceCode.trim()) {
+          return { success: false, message: 'Check-in passcode has not been configured for this event.' };
+        }
+
+        if (code.trim().toUpperCase() !== hackathon.attendanceCode.trim().toUpperCase()) {
           return { success: false, message: 'Invalid attendance passcode.' };
         }
 
