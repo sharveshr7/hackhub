@@ -1,21 +1,16 @@
 /**
  * HackHub Serverless API: Student Authentication & Secure Resolution
  * 
- * Provides trusted, rate-limited student authentication that:
- * 1. Never exposes student names, UIDs, or personal information in unauthenticated lookups.
- * 2. Enforces IP-based sliding window rate limiting (max 5 failed attempts/min) to prevent brute force.
- * 3. Returns identical generic 401 "Invalid registration number or password." for both nonexistent IDs
+ * Provides trusted, rate-limited student authentication and request verification:
+ * 1. Resolves registration numbers strictly via Firebase Admin SDK server-side.
+ * 2. Never relies on unauthenticated Firestore REST reads or insecure fallback domains.
+ * 3. Enforces IP-based sliding window rate limiting (max 5 failed attempts/min) to prevent brute force.
+ * 4. Returns identical generic 401 "Invalid registration number or password." for both nonexistent IDs
  *    and wrong passwords, equalizing timing so students cannot be enumerated.
- * 4. Validates actual credentials against Google Identity Toolkit without storing passwords anywhere.
- * 
- * Production Multi-Tier Defense Architecture:
- * - Layer 1: Client-side lockout in authService.ts locks the client for 60s after 5 consecutive failed attempts.
- * - Layer 2: In-memory sliding window throttles bursts per warm serverless container instance.
- * - Layer 3: Google Cloud Identity Toolkit platform-level rate limiting automatically blocks distributed abuse.
- * - Note on Distributed Multi-Instance Scaling:
- *   In serverless deployments, each warm container maintains this in-memory sliding window. Combined with
- *   Layer 1 (browser client backoff) and Layer 3 (Google Identity global IP throttling), brute force attacks
- *   are comprehensively mitigated without requiring external third-party Redis dependencies.
+ * 5. Returns explicit, safe 503 configuration error if server credentials are not provisioned.
+ * 6. Validates credentials against Google Identity Toolkit without storing passwords anywhere.
+ * 7. Enforces server-side active account checks.
+ * 8. Provides server-side token and role verification for sensitive operations.
  */
 
 interface RateLimitEntry {
@@ -63,6 +58,192 @@ function resetRateLimit(ip: string) {
 const FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY || "AIzaSyDola5Yv45cq2h4OgmBPrFar5dUcRUh_as";
 const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || "foceye-2546c";
 
+/**
+ * Initialize and retrieve Firebase Admin instances using server credentials
+ */
+export async function getAdminInstances() {
+  try {
+    const { getApps, initializeApp, cert } = await import('firebase-admin/app');
+    const { getFirestore } = await import('firebase-admin/firestore');
+    const { getAuth } = await import('firebase-admin/auth');
+
+    const existingApps = getApps();
+    const adminApp = existingApps.find(a => a.name === 'HackHubAdmin') || (existingApps.length > 0 ? existingApps[0] : null);
+
+    if (adminApp) {
+      return {
+        adminApp,
+        adminDb: getFirestore(adminApp),
+        adminAuth: getAuth(adminApp)
+      };
+    }
+
+    // 1. Full JSON service account string or base64 encoded
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      let serviceAccount: any;
+      const raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+      if (raw.startsWith('{')) {
+        serviceAccount = JSON.parse(raw);
+      } else {
+        serviceAccount = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+      }
+      const app = initializeApp({
+        credential: cert(serviceAccount),
+        projectId: serviceAccount.project_id || FIREBASE_PROJECT_ID
+      }, 'HackHubAdmin');
+      return {
+        adminApp: app,
+        adminDb: getFirestore(app),
+        adminAuth: getAuth(app)
+      };
+    }
+
+    // 2. Discrete environment variables
+    if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+      const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+      const app = initializeApp({
+        credential: cert({
+          projectId: process.env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey
+        }),
+        projectId: process.env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID
+      }, 'HackHubAdmin');
+      return {
+        adminApp: app,
+        adminDb: getFirestore(app),
+        adminAuth: getAuth(app)
+      };
+    }
+
+    // 3. Application Default Credentials (GCP environment)
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      const app = initializeApp({ projectId: FIREBASE_PROJECT_ID }, 'HackHubAdmin');
+      return {
+        adminApp: app,
+        adminDb: getFirestore(app),
+        adminAuth: getAuth(app)
+      };
+    }
+
+    return null;
+  } catch (err: any) {
+    console.warn('[StudentAuth] Admin SDK initialization note:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Verify Firebase ID Token and enforce server-side role and account checks
+ */
+export async function verifyServerRequest(
+  authHeader: string | undefined,
+  requiredRole?: 'STUDENT' | 'ADMIN' | 'HOD'
+): Promise<{
+  valid: boolean;
+  uid?: string;
+  email?: string;
+  role?: string;
+  error?: string;
+  status: number;
+}> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return {
+      valid: false,
+      status: 401,
+      error: 'Unauthorized: Missing or invalid Bearer authentication header.'
+    };
+  }
+
+  const idToken = authHeader.split('Bearer ')[1].trim();
+  const adminInstances = await getAdminInstances();
+  if (!adminInstances) {
+    return {
+      valid: false,
+      status: 503,
+      error: 'Server authorization service unavailable: Firebase Admin SDK credentials required.'
+    };
+  }
+
+  try {
+    const decodedToken = await adminInstances.adminAuth.verifyIdToken(idToken, true);
+    const uid = decodedToken.uid;
+    const email = decodedToken.email;
+
+    // Verify account status server-side from Firestore
+    const adminDoc = await adminInstances.adminDb.collection('admins').doc(uid).get();
+    if (adminDoc.exists) {
+      const adminData = adminDoc.data() as any;
+      if (adminData.approvalStatus !== 'APPROVED' || adminData.isActive === false) {
+        return {
+          valid: false,
+          status: 403,
+          error: 'Forbidden: Administrator account is not active or approved.'
+        };
+      }
+      if (requiredRole === 'HOD' && adminData.role !== 'HOD') {
+        return {
+          valid: false,
+          status: 403,
+          error: 'Forbidden: Head of Department (HOD) privileges required.'
+        };
+      }
+      return {
+        valid: true,
+        status: 200,
+        uid,
+        email,
+        role: adminData.role || 'ADMIN'
+      };
+    }
+
+    const studentDoc = await adminInstances.adminDb.collection('students').doc(uid).get();
+    if (studentDoc.exists) {
+      const studentData = studentDoc.data() as any;
+      if (studentData.accountStatus === 'disabled' || studentData.isActive === false) {
+        return {
+          valid: false,
+          status: 403,
+          error: 'Forbidden: Student account has been deactivated.'
+        };
+      }
+      if (requiredRole && requiredRole !== 'STUDENT') {
+        return {
+          valid: false,
+          status: 403,
+          error: 'Forbidden: Student accounts cannot access administrative resources.'
+        };
+      }
+      return {
+        valid: true,
+        status: 200,
+        uid,
+        email,
+        role: 'STUDENT'
+      };
+    }
+
+    return {
+      valid: true,
+      status: 200,
+      uid,
+      email,
+      role: (decodedToken.role as string) || 'AUTHENTICATED'
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      status: 401,
+      error: err.code === 'auth/id-token-expired'
+        ? 'Session expired. Please log in again.'
+        : 'Invalid authentication credentials.'
+    };
+  }
+}
+
+/**
+ * Core handler for student authentication and registration-number resolution
+ */
 export async function handleStudentAuth(body: { identifier?: string; password?: string }, clientIp: string) {
   const identifier = (body.identifier || '').trim();
   const password = body.password || '';
@@ -87,55 +268,37 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
   }
 
   let targetEmail = '';
+  let adminInstances: Awaited<ReturnType<typeof getAdminInstances>> = null;
 
   if (identifier.includes('@')) {
+    // Direct institutional/college email provided
     targetEmail = identifier.toLowerCase();
   } else {
-    // Normalized registration number lookup
+    // Normalized registration number lookup: Must be resolved securely via trusted server-side Admin SDK
     const cleanRegNo = identifier.toUpperCase().replace(/\s+/g, '');
 
-    // 1. Firebase Admin SDK resolution (if serverless environment contains service account)
-    if (!targetEmail && process.env.FIREBASE_SERVICE_ACCOUNT) {
-      try {
-        const { getApps, initializeApp, cert } = await import('firebase-admin/app');
-        const { getFirestore } = await import('firebase-admin/firestore');
-        if (getApps().length === 0) {
-          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-          initializeApp({
-            credential: cert(serviceAccount),
-            projectId: FIREBASE_PROJECT_ID
-          });
+    adminInstances = await getAdminInstances();
+    if (!adminInstances) {
+      // Explicit safe configuration error: Never silently fall back to insecure REST or fake domains
+      return {
+        status: 503,
+        body: {
+          error: 'Server authentication configuration required: Firebase Admin SDK credentials must be set in environment variables (FIREBASE_SERVICE_ACCOUNT) to resolve registration numbers. Please sign in with your registered college email.'
         }
-        const lookupDoc = await getFirestore().collection('reg_lookups').doc(cleanRegNo).get();
-        if (lookupDoc.exists) {
-          targetEmail = (lookupDoc.data() as any)?.email || '';
-        }
-      } catch {
-        // Silently continue to next resolution tier
-      }
+      };
     }
 
-    // 2. Direct Firestore REST resolution with server token if configured
-    if (!targetEmail) {
-      try {
-        const firestoreUrl = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/reg_lookups/${encodeURIComponent(cleanRegNo)}`;
-        const headers: Record<string, string> = {};
-        if (process.env.FIREBASE_AUTH_TOKEN) {
-          headers['Authorization'] = `Bearer ${process.env.FIREBASE_AUTH_TOKEN}`;
-        }
-        const res = await fetch(firestoreUrl, { headers });
-        if (res.ok) {
-          const docData = (await res.json()) as any;
-          targetEmail = docData?.fields?.email?.stringValue || '';
-        }
-      } catch {
-        // Catch network errors silently to preserve anti-enumeration
+    try {
+      const lookupDoc = await adminInstances.adminDb.collection('reg_lookups').doc(cleanRegNo).get();
+      if (lookupDoc.exists) {
+        targetEmail = (lookupDoc.data() as any)?.email || '';
       }
-    }
-
-    // 3. Institutional email convention fallback (e.g. 711522104001@kitcbe.com)
-    if (!targetEmail) {
-      targetEmail = `${cleanRegNo.toLowerCase()}@kitcbe.com`;
+    } catch (lookupErr: any) {
+      console.error('[StudentAuth] Server registration lookup failure:', lookupErr.message);
+      return {
+        status: 500,
+        body: { error: 'Authentication service temporarily unavailable.' }
+      };
     }
 
     if (!targetEmail) {
@@ -148,7 +311,7 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
     }
   }
 
-  // Authenticate against Google Identity Toolkit
+  // Authenticate credentials against Google Identity Toolkit
   try {
     const authUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`;
     const authRes = await fetch(authUrl, {
@@ -168,6 +331,27 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
         status: 401,
         body: { error: 'Invalid registration number or password.' }
       };
+    }
+
+    // Verify account status server-side if Admin SDK is configured
+    if (!adminInstances) {
+      adminInstances = await getAdminInstances();
+    }
+    if (adminInstances && authData.localId) {
+      try {
+        const studentDoc = await adminInstances.adminDb.collection('students').doc(authData.localId).get();
+        if (studentDoc.exists) {
+          const studentData = studentDoc.data() as any;
+          if (studentData.accountStatus === 'disabled' || studentData.isActive === false) {
+            return {
+              status: 403,
+              body: { error: 'This student account has been deactivated. Please contact college administration.' }
+            };
+          }
+        }
+      } catch (checkErr: any) {
+        console.warn('[StudentAuth] Server student status check note:', checkErr.message);
+      }
     }
 
     // Success: Clear rate limit

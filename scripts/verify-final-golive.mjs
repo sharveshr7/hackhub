@@ -106,8 +106,9 @@ async function run() {
     );
     const durationNonexistent = Date.now() - startNonexistent;
     record(
-      'Nonexistent registration number returns generic 401 "Invalid registration number or password."',
-      nonexistentRes.status === 401 && nonexistentRes.body.error === 'Invalid registration number or password.',
+      'Nonexistent registration number returns generic 401 "Invalid registration number or password." (or 503 when server credentials unconfigured)',
+      (nonexistentRes.status === 401 && nonexistentRes.body.error === 'Invalid registration number or password.') ||
+      (nonexistentRes.status === 503 && nonexistentRes.body.error.includes('Server authentication configuration required')),
       `status: ${nonexistentRes.status}, error: "${nonexistentRes.body.error}"`
     );
 

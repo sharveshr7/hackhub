@@ -125,14 +125,16 @@ export const authService = {
     if (rawInput.includes('@')) {
       targetEmail = rawInput.toLowerCase();
     } else {
-      // 1. Attempt trusted serverless API endpoint (/api/student-auth) first for rate limiting & secure resolution
+      const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
+      // Architecture Note: Direct client read via getDoc(doc(db, 'reg_lookups', cleanRegNo)) is forbidden by firestore.rules.
+      // Registration lookup resolution is routed through trusted backend endpoint /api/student-auth.
       let resolvedViaApi = false;
       if (typeof window !== 'undefined' && typeof fetch === 'function') {
         try {
           const apiRes = await fetch('/api/student-auth', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ identifier: rawInput, password: pass })
+            body: JSON.stringify({ identifier: cleanRegNo, password: pass })
           });
 
           if (apiRes.status === 429) {
@@ -144,47 +146,41 @@ export const authService = {
             throw new Error('Invalid registration number or password.');
           }
 
+          if (apiRes.status === 403) {
+            const data = await apiRes.json().catch(() => ({}));
+            throw new Error(data.error || 'This student account has been deactivated. Please contact college administration.');
+          }
+
+          if (apiRes.status === 503) {
+            const data = await apiRes.json().catch(() => ({}));
+            throw new Error(data.error || 'Registration number login requires server configuration. Please sign in with your college email.');
+          }
+
           if (apiRes.ok) {
             const data = await apiRes.json().catch(() => ({}));
             if (data?.email) {
               targetEmail = data.email;
               resolvedViaApi = true;
             }
+          } else {
+            const errData = await apiRes.json().catch(() => ({}));
+            throw new Error(errData?.error || 'Authentication service temporarily unavailable.');
           }
         } catch (apiErr: any) {
-          if (apiErr.message?.includes('Invalid') || apiErr.message?.includes('Too many')) {
+          if (
+            apiErr.message?.includes('Invalid') ||
+            apiErr.message?.includes('Too many') ||
+            apiErr.message?.includes('deactivated') ||
+            apiErr.message?.includes('configuration required') ||
+            apiErr.message?.includes('temporarily unavailable')
+          ) {
             throw apiErr;
           }
         }
       }
 
-      // 2. Direct lookup fallback if API is not available
       if (!resolvedViaApi && !targetEmail) {
-        const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
-        try {
-          const lookupSnap = await getDoc(doc(db, 'reg_lookups', cleanRegNo));
-          if (lookupSnap.exists()) {
-            targetEmail = lookupSnap.data().email;
-          } else {
-            // Fallback query to students collection
-            const regQuery = query(
-              collection(db, 'students'),
-              where('registerNumber', '==', cleanRegNo)
-            );
-            const regSnap = await getDocs(regQuery);
-            if (!regSnap.empty) {
-              targetEmail = regSnap.docs[0].data().email;
-            } else {
-              // Generic error message to prevent registration number enumeration
-              throw new Error('Invalid registration number or password.');
-            }
-          }
-        } catch (err: any) {
-          if (err.message?.includes('Invalid registration number or password')) {
-            throw err;
-          }
-          throw new Error('Invalid registration number or password.');
-        }
+        throw new Error('Unable to resolve registration number. Please log in using your college email address.');
       }
     }
 
@@ -520,21 +516,9 @@ export const authService = {
     if (rawInput.includes('@')) {
       targetEmail = rawInput.toLowerCase();
     } else {
-      const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
-      try {
-        const lookupSnap = await getDoc(doc(db, 'reg_lookups', cleanRegNo));
-        if (lookupSnap.exists()) {
-          targetEmail = lookupSnap.data().email;
-        } else {
-          const regQuery = query(collection(db, 'students'), where('registerNumber', '==', cleanRegNo));
-          const regSnap = await getDocs(regQuery);
-          if (!regSnap.empty) {
-            targetEmail = regSnap.docs[0].data().email;
-          }
-        }
-      } catch (err) {
-        // Generic catch to avoid enumeration
-      }
+      // Registration lookup documents are private and not accessible to unauthenticated clients.
+      // Password reset instructions must be requested via the student's registered college email.
+      return;
     }
 
     if (targetEmail) {
