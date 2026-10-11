@@ -135,7 +135,10 @@ export const StudentLoginPage: React.FC = () => {
               label="Registration Number or Email Address"
               type="text"
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={(e) => {
+                setIdentifier(e.target.value);
+                if (error) setError(null);
+              }}
               placeholder="e.g. 717822P101 or student@kitcbe.com"
               required
               autoComplete="username"
@@ -147,7 +150,10 @@ export const StudentLoginPage: React.FC = () => {
                 label="Password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (error) setError(null);
+                }}
                 placeholder="••••••••••••"
                 required
                 autoComplete="current-password"

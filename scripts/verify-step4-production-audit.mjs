@@ -299,7 +299,7 @@ check(
   'External participation is clearly flagged as externalTrackingOnly (separate from internal passes)',
   registrationServiceTs.includes("isExt ? `EXT-TRACK-${randNum}` : `HACK-2026-${randNum}`") &&
   registrationServiceTs.includes("externalTrackingOnly: isExt") &&
-  registrationServiceTs.includes("externalStatus: isExt ? 'APPLIED_EXTERNALLY' : undefined")
+  (registrationServiceTs.includes("externalStatus: isExt ? 'APPLIED_EXTERNALLY' : undefined") || registrationServiceTs.includes("isExt ? { externalStatus: 'APPLIED_EXTERNALLY' } : {}"))
 );
 
 check(

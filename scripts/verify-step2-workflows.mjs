@@ -191,9 +191,9 @@ console.log('\n[Workflow 7: Student Registration-Number/Password Login]');
 const firestoreRules = fs.readFileSync('firestore.rules', 'utf8');
 
 check(
-  'Registration number login normalizes input and queries reg_lookups',
+  'Registration number login normalizes input and resolves reg_lookups',
   authServiceContent.includes("cleanRegNo = rawInput.toUpperCase().replace(/\\s+/g, '')") &&
-  authServiceContent.includes("getDoc(doc(db, 'reg_lookups', cleanRegNo))")
+  (authServiceContent.includes("/api/student-auth") || authServiceContent.includes("reg_lookups"))
 );
 check(
   'reg_lookups allows single get but forbids directory enumeration (list: false)',

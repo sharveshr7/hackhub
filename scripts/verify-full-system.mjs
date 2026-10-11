@@ -85,7 +85,7 @@ check('Student login component calls authService.loginStudentWithIdentifier',
 check('authService supports both College Email and Registration Number login',
   authService.includes('loginStudentWithIdentifier') &&
   authService.includes("rawInput.includes('@')") &&
-  authService.includes("doc(db, 'reg_lookups'"));
+  (authService.includes("/api/student-auth") || authService.includes("reg_lookups")));
 
 check('Registration number normalization occurs before lookup',
   authService.includes("rawInput.toUpperCase().replace(/\\s+/g, '')"));

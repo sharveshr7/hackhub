@@ -58,14 +58,40 @@ function resetRateLimit(ip: string) {
 const FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY || "AIzaSyDola5Yv45cq2h4OgmBPrFar5dUcRUh_as";
 const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || "foceye-2546c";
 
+let mockAdminInstances: any = null;
+
+/**
+ * Configure mock Admin SDK instances for unit testing
+ */
+export function setMockAdminInstances(instances: any) {
+  mockAdminInstances = instances;
+}
+
+export function resetMockAdminInstances() {
+  mockAdminInstances = null;
+}
+
+/**
+ * Reset rate limit entries (useful for test suites)
+ */
+export function resetAllRateLimits() {
+  rateLimitMap.clear();
+}
+
 /**
  * Initialize and retrieve Firebase Admin instances using server credentials
  */
 export async function getAdminInstances() {
+  if (mockAdminInstances) {
+    return mockAdminInstances;
+  }
+
   try {
     const { getApps, initializeApp, cert } = await import('firebase-admin/app');
     const { getFirestore } = await import('firebase-admin/firestore');
     const { getAuth } = await import('firebase-admin/auth');
+
+    const expectedProjectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID;
 
     const existingApps = getApps();
     const adminApp = existingApps.find(a => a.name === 'HackHubAdmin') || (existingApps.length > 0 ? existingApps[0] : null);
@@ -81,15 +107,31 @@ export async function getAdminInstances() {
     // 1. Full JSON service account string or base64 encoded
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
       let serviceAccount: any;
-      const raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+      let raw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+      if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+        raw = raw.slice(1, -1).trim();
+      }
+
       if (raw.startsWith('{')) {
         serviceAccount = JSON.parse(raw);
       } else {
         serviceAccount = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
       }
+
+      // Validate that credentials belong to the intended HackHub Firebase project
+      if (serviceAccount.project_id && serviceAccount.project_id !== expectedProjectId) {
+        console.warn(`[StudentAuth] Credential project_id does not match target HackHub project.`);
+        return null;
+      }
+
+      // Handle private-key newline formatting correctly
+      if (typeof serviceAccount.private_key === 'string') {
+        serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+      }
+
       const app = initializeApp({
         credential: cert(serviceAccount),
-        projectId: serviceAccount.project_id || FIREBASE_PROJECT_ID
+        projectId: serviceAccount.project_id || expectedProjectId
       }, 'HackHubAdmin');
       return {
         adminApp: app,
@@ -100,14 +142,19 @@ export async function getAdminInstances() {
 
     // 2. Discrete environment variables
     if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+      if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_PROJECT_ID !== expectedProjectId) {
+        console.warn(`[StudentAuth] Discrete project_id does not match target HackHub project.`);
+        return null;
+      }
+
       const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
       const app = initializeApp({
         credential: cert({
-          projectId: process.env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID,
+          projectId: expectedProjectId,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
           privateKey
         }),
-        projectId: process.env.FIREBASE_PROJECT_ID || FIREBASE_PROJECT_ID
+        projectId: expectedProjectId
       }, 'HackHubAdmin');
       return {
         adminApp: app,
@@ -118,7 +165,7 @@ export async function getAdminInstances() {
 
     // 3. Application Default Credentials (GCP environment)
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      const app = initializeApp({ projectId: FIREBASE_PROJECT_ID }, 'HackHubAdmin');
+      const app = initializeApp({ projectId: expectedProjectId }, 'HackHubAdmin');
       return {
         adminApp: app,
         adminDb: getFirestore(app),

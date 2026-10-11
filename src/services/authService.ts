@@ -20,6 +20,49 @@ import {
 import { useAppStore, CurrentUser } from '../lib/store';
 import { Student, Admin, UserRole } from '../types';
 
+let studentAuthResolver: ((identifier: string, pass: string) => Promise<{ status: number; data: any }>) | null = null;
+
+export function setStudentAuthResolver(resolver: typeof studentAuthResolver) {
+  studentAuthResolver = resolver;
+}
+
+export function resetStudentAuthResolver() {
+  studentAuthResolver = null;
+}
+
+function isCredentialMismatch(err: any): boolean {
+  if (!err) return false;
+  const code = (err.code || '').toLowerCase();
+  const msg = (err.message || '').toLowerCase();
+
+  if (
+    code === 'auth/invalid-credential' ||
+    code === 'auth/invalid-login-credentials' ||
+    code === 'auth/user-not-found' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/invalid-email'
+  ) {
+    return true;
+  }
+
+  if (
+    msg.includes('invalid-credential') ||
+    msg.includes('invalid_credential') ||
+    msg.includes('invalid-login-credentials') ||
+    msg.includes('invalid_login_credentials') ||
+    msg.includes('user-not-found') ||
+    msg.includes('wrong-password') ||
+    msg.includes('invalid_password') ||
+    msg.includes('email_not_found') ||
+    msg.includes('invalid credential') ||
+    msg.includes('invalid password')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export const authService = {
   /**
    * Register a new student in Firebase Auth and create Firestore profile in students/{uid}
@@ -126,10 +169,31 @@ export const authService = {
       targetEmail = rawInput.toLowerCase();
     } else {
       const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
-      // Architecture Note: Direct client read via getDoc(doc(db, 'reg_lookups', cleanRegNo)) is forbidden by firestore.rules.
+      // Architecture Note: Direct client read of reg_lookups collection is forbidden by firestore.rules.
       // Registration lookup resolution is routed through trusted backend endpoint /api/student-auth.
       let resolvedViaApi = false;
-      if (typeof window !== 'undefined' && typeof fetch === 'function') {
+
+      if (studentAuthResolver) {
+        const res = await studentAuthResolver(cleanRegNo, pass);
+        if (res.status === 429) {
+          throw new Error(res.data?.error || 'Too many login attempts. Please wait 1 minute before trying again.');
+        }
+        if (res.status === 401) {
+          throw new Error('Invalid registration number or password.');
+        }
+        if (res.status === 403) {
+          throw new Error(res.data?.error || 'This student account has been deactivated. Please contact college administration.');
+        }
+        if (res.status === 503) {
+          throw new Error(res.data?.error || 'Registration number login requires server configuration. Please sign in with your college email.');
+        }
+        if (res.status === 200 && res.data?.email) {
+          targetEmail = res.data.email;
+          resolvedViaApi = true;
+        } else {
+          throw new Error(res.data?.error || 'Authentication service temporarily unavailable.');
+        }
+      } else if (typeof fetch === 'function') {
         try {
           const apiRes = await fetch('/api/student-auth', {
             method: 'POST',
@@ -189,25 +253,25 @@ export const authService = {
     try {
       userCredential = await signInWithEmailAndPassword(auth, targetEmail, pass);
     } catch (authErr: any) {
-      if (
-        authErr.code === 'auth/invalid-credential' ||
-        authErr.code === 'auth/user-not-found' ||
-        authErr.code === 'auth/wrong-password' ||
-        authErr.code === 'auth/invalid-email'
-      ) {
+      if (isCredentialMismatch(authErr)) {
         throw new Error(
           rawInput.includes('@')
             ? 'Invalid email or password.'
             : 'Invalid registration number or password.'
         );
       }
-      if (authErr.code === 'auth/too-many-requests') {
+      if (authErr.code === 'auth/too-many-requests' || authErr.message?.includes('too-many-requests')) {
         throw new Error('Too many failed sign in attempts. Please try again in a few minutes.');
       }
-      if (authErr.code === 'auth/user-disabled') {
+      if (authErr.code === 'auth/user-disabled' || authErr.message?.includes('user-disabled')) {
         throw new Error('This student account has been disabled. Please contact college administration.');
       }
-      throw new Error(authErr.message || 'Unable to authenticate student credentials.');
+      // Safe fallback ensuring generic error
+      throw new Error(
+        rawInput.includes('@')
+          ? 'Invalid email or password.'
+          : 'Invalid registration number or password.'
+      );
     }
 
     const uid = userCredential.user.uid;
@@ -487,21 +551,16 @@ export const authService = {
       ) {
         throw err;
       }
-      if (
-        err.code === 'auth/invalid-credential' ||
-        err.code === 'auth/user-not-found' ||
-        err.code === 'auth/wrong-password' ||
-        err.code === 'auth/invalid-email'
-      ) {
+      if (isCredentialMismatch(err)) {
         throw new Error('Invalid email or password.');
       }
-      if (err.code === 'auth/too-many-requests') {
+      if (err.code === 'auth/too-many-requests' || err.message?.includes('too-many-requests')) {
         throw new Error('Too many failed attempts. Please try again later.');
       }
-      if (err.code === 'auth/user-disabled') {
+      if (err.code === 'auth/user-disabled' || err.message?.includes('user-disabled')) {
         throw new Error('This administrator account has been disabled.');
       }
-      throw new Error(err.message || 'Unable to sign in. Please try again.');
+      throw new Error('Invalid email or password.');
     }
   },
 
