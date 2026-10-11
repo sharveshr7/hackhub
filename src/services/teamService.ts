@@ -1,4 +1,4 @@
-import { db } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
 import {
   collection,
   getDocs,
@@ -19,13 +19,17 @@ export const teamService = {
    * Fetch all teams for a specific hackathon from Firestore
    */
   async getTeamsByHackathon(hackathonId: string): Promise<Team[]> {
-    const q = query(collection(db, 'teams'), where('hackathonId', '==', hackathonId));
-    const snap = await getDocs(q);
-    const teams = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Team));
-    useAppStore.setState((state) => ({
-      teams: [...state.teams.filter((t) => t.hackathonId !== hackathonId), ...teams]
-    }));
-    return teams;
+    const currentUser = useAppStore.getState().currentUser;
+    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD') {
+      const q = query(collection(db, 'teams'), where('hackathonId', '==', hackathonId));
+      const snap = await getDocs(q);
+      const teams = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Team));
+      useAppStore.setState((state) => ({
+        teams: [...state.teams.filter((t) => t.hackathonId !== hackathonId), ...teams]
+      }));
+      return teams;
+    }
+    return useAppStore.getState().teams.filter((t) => t.hackathonId === hackathonId);
   },
 
   /**
@@ -41,13 +45,24 @@ export const teamService = {
    * Find the team for a student in a specific hackathon
    */
   async getStudentTeam(hackathonId: string, studentId: string): Promise<Team | null> {
-    const q = query(collection(db, 'teams'), where('hackathonId', '==', hackathonId));
-    const snap = await getDocs(q);
-    for (const d of snap.docs) {
-      const team = { id: d.id, ...d.data() } as Team;
-      if (team.members && team.members.some((m) => m.studentId === studentId)) {
-        return team;
+    // 1. Check local store first
+    const storeTeam = useAppStore.getState().teams.find(
+      (t) => t.hackathonId === hackathonId && (t.leaderId === studentId || t.memberIds?.includes(studentId) || t.members?.some((m) => m.studentId === studentId))
+    );
+    if (storeTeam) return storeTeam;
+
+    // 2. Query scoped to the student's memberIds
+    try {
+      const q = query(collection(db, 'teams'), where('memberIds', 'array-contains', studentId));
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        const team = { id: d.id, ...d.data() } as Team;
+        if (team.hackathonId === hackathonId) {
+          return team;
+        }
       }
+    } catch (err: any) {
+      console.warn('[TeamService] Scoped student team query note:', err.message);
     }
     return null;
   },
@@ -88,6 +103,7 @@ export const teamService = {
       code,
       leaderId: leader.uid,
       members: [leaderMember],
+      memberIds: [leader.uid],
       status: 'CONFIRMED',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -130,6 +146,36 @@ export const teamService = {
     student: Student
   ): Promise<{ success: boolean; team?: Team; message: string }> {
     const cleanCode = code.trim().toUpperCase();
+
+    // 1. Attempt secure join via backend serverless endpoint
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (idToken) {
+        const res = await fetch('/api/student-auth', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`
+          },
+          body: JSON.stringify({
+            action: 'join-team',
+            code: cleanCode,
+            student
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
+          useAppStore.getState().joinTeamByCode(code, student);
+          return { success: true, team: data.team, message: data.message };
+        } else if (data?.error) {
+          return { success: false, message: data.error };
+        }
+      }
+    } catch (err: any) {
+      console.warn('[TeamService] Backend join-team route note:', err.message);
+    }
+
+    // 2. Client-side fallback if server endpoint is unavailable
     const q = query(collection(db, 'teams'), where('code', '==', cleanCode));
     const snap = await getDocs(q);
 
@@ -167,9 +213,11 @@ export const teamService = {
     };
 
     const updatedMembers = [...team.members, newMember];
+    const updatedMemberIds = [...(team.memberIds || team.members.map((m) => m.studentId)), student.uid];
 
     await updateDoc(doc(db, 'teams', team.id), {
       members: updatedMembers,
+      memberIds: updatedMemberIds,
       updatedAt: serverTimestamp()
     });
 
@@ -190,7 +238,7 @@ export const teamService = {
     useAppStore.getState().joinTeamByCode(code, student);
     return {
       success: true,
-      team: { ...team, members: updatedMembers },
+      team: { ...team, members: updatedMembers, memberIds: updatedMemberIds },
       message: 'Successfully joined ' + team.name + '!'
     };
   },
@@ -211,6 +259,7 @@ export const teamService = {
     }
 
     const updatedMembers = team.members.filter((m) => m.studentId !== studentId);
+    const updatedMemberIds = (team.memberIds || team.members.map((m) => m.studentId)).filter((id) => id !== studentId);
     let newLeaderId = team.leaderId;
     if (team.leaderId === studentId && updatedMembers.length > 0) {
       updatedMembers[0].role = 'LEADER';
@@ -219,6 +268,7 @@ export const teamService = {
 
     await updateDoc(doc(db, 'teams', teamId), {
       members: updatedMembers,
+      memberIds: updatedMemberIds,
       leaderId: newLeaderId,
       updatedAt: serverTimestamp()
     });
@@ -236,8 +286,10 @@ export const teamService = {
     const team = snap.data() as Team;
 
     const updatedMembers = team.members.filter((m) => m.studentId !== memberId);
+    const updatedMemberIds = (team.memberIds || team.members.map((m) => m.studentId)).filter((id) => id !== memberId);
     await updateDoc(doc(db, 'teams', teamId), {
       members: updatedMembers,
+      memberIds: updatedMemberIds,
       updatedAt: serverTimestamp()
     });
 

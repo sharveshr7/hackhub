@@ -174,6 +174,24 @@ assert(
   'Registration number authentication verifies credentials via Identity Toolkit without storing passwords'
 );
 
+// 14. Team documents restricted to team members and administrators
+console.log('\n[Check 14: Team Document Confidentiality]');
+assert(
+  rules.includes('match /teams/{teamId}') &&
+  rules.includes('resource.data.leaderId == request.auth.uid ||\n          (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)') &&
+  !rules.includes('match /teams/{teamId} {\n      allow read: if isAuthenticated();'),
+  'Team document read access strictly limited to team leader, members, or administrators'
+);
+
+// 15. Notification creation restricted to prevent forged notifications
+console.log('\n[Check 15: Notification Forgery Prevention]');
+assert(
+  rules.includes('match /notifications/{notificationId}') &&
+  rules.includes('allow create: if isAdmin() || (\n        isAuthenticated() && request.resource.data.userId == request.auth.uid\n      );') &&
+  !rules.includes('match /notifications/{notificationId} {\n      allow read, update, delete: if isAuthenticated() && (\n        resource.data.userId == request.auth.uid ||\n        resource.data.userId == \'ALL\' ||\n        isAdmin()\n      );\n      allow create: if isAuthenticated();'),
+  'Notification creation restricted to self-notification for students; only admins can notify other users or broadcast'
+);
+
 console.log('\n================================================================');
 console.log(`  RULES AUDIT SUMMARY: ${passedTests} / ${totalTests} CHECKS PASSED`);
 console.log('================================================================\n');

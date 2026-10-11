@@ -148,14 +148,24 @@ service cloud.firestore {
       allow delete: if isAdmin() || (isAuthenticated() && resource.data.studentId == request.auth.uid);
     }
 
-    // Teams Collection: Created by student leader; updated by leader or members; deleted by leader or admin
+    // Teams Collection: Read restricted to team members & administrators.
+    // Create allowed for squad leader. Update allowed for squad leader or existing member.
+    // Delete restricted to squad leader or administrator.
     match /teams/{teamId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.leaderId == request.auth.uid;
+      allow read: if isAdmin() || (
+        isAuthenticated() && (
+          resource.data.leaderId == request.auth.uid ||
+          (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)
+        )
+      );
+      allow create: if isAuthenticated() &&
+        request.resource.data.leaderId == request.auth.uid &&
+        (request.resource.data.memberIds == null || request.auth.uid in request.resource.data.memberIds);
       allow update: if isAdmin() || (
         isAuthenticated() && (
           (resource.data.leaderId == request.auth.uid && request.resource.data.hackathonId == resource.data.hackathonId) ||
           (
+            (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds) &&
             request.resource.data.leaderId == resource.data.leaderId &&
             request.resource.data.hackathonId == resource.data.hackathonId &&
             request.resource.data.code == resource.data.code
@@ -208,14 +218,16 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Notifications Collection: Scoped to user or broadcast 'ALL'
+    // Notifications Collection: Scoped to user or broadcast 'ALL'; forged creation prevented
     match /notifications/{notificationId} {
       allow read, update, delete: if isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         resource.data.userId == 'ALL' ||
         isAdmin()
       );
-      allow create: if isAuthenticated();
+      allow create: if isAdmin() || (
+        isAuthenticated() && request.resource.data.userId == request.auth.uid
+      );
     }
 
     // Certificates Collection: Public read for certificate verification; only admins can issue

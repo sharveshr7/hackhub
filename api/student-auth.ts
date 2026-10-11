@@ -825,6 +825,86 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
 
+  // Handle authenticated squad join via invite code
+  if (req.body?.action === 'join-team') {
+    const authHeader = req.headers['authorization'];
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Authentication required to join squad.' });
+    }
+    const verification = await verifyServerRequest(authHeader);
+    if (!verification.valid || !verification.uid) {
+      return res.status(401).json({ error: 'Invalid or expired authentication session.' });
+    }
+
+    const { code, student } = req.body;
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ error: 'Invite code is required.' });
+    }
+
+    const instances = await getAdminInstances();
+    if (!instances) {
+      return res.status(503).json({ error: 'Server authentication configuration required.' });
+    }
+
+    const cleanCode = code.trim().toUpperCase();
+    const teamSnap = await instances.adminDb.collection('teams').where('code', '==', cleanCode).limit(1).get();
+    if (teamSnap.empty) {
+      return res.status(404).json({ error: 'Invalid team invite code. No squad found.' });
+    }
+
+    const teamDoc = teamSnap.docs[0];
+    const teamData = teamDoc.data();
+    const members = teamData.members || [];
+    const memberIds = teamData.memberIds || members.map((m: any) => m.studentId);
+
+    if (members.length >= 4) {
+      return res.status(400).json({ error: 'This squad has reached maximum capacity (4/4 members).' });
+    }
+
+    if (memberIds.includes(verification.uid)) {
+      return res.status(400).json({ error: 'You are already in this squad.' });
+    }
+
+    const newMember = {
+      studentId: verification.uid,
+      name: student?.name || 'Student Member',
+      email: student?.email || '',
+      department: student?.department || '',
+      registerNumber: student?.registerNumber || '',
+      role: 'MEMBER',
+      joinedAt: new Date().toISOString()
+    };
+
+    const updatedMembers = [...members, newMember];
+    const updatedMemberIds = [...memberIds, verification.uid];
+
+    await teamDoc.ref.update({
+      members: updatedMembers,
+      memberIds: updatedMemberIds,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Update student's registration
+    const regSnap = await instances.adminDb
+      .collection('registrations')
+      .where('hackathonId', '==', teamData.hackathonId)
+      .where('studentId', '==', verification.uid)
+      .limit(1)
+      .get();
+    if (!regSnap.empty) {
+      await regSnap.docs[0].ref.update({
+        teamId: teamDoc.id,
+        updatedAt: new Date().toISOString()
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      team: { id: teamDoc.id, ...teamData, members: updatedMembers, memberIds: updatedMemberIds },
+      message: `Successfully joined ${teamData.name}!`
+    });
+  }
+
   const clientIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1').toString().split(',')[0].trim();
   const result = await handleStudentAuth(req.body || {}, clientIp);
 

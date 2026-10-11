@@ -129,9 +129,12 @@ export function useFirestoreSync() {
         console.warn('Failed to attach registrations listener:', e);
       }
 
-      // 5. Teams
+      // 5. Teams (Administrators see all; students scoped to own squads)
       try {
-        const qTeams = query(collection(db, 'teams'));
+        const qTeams =
+          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
+            ? query(collection(db, 'teams'))
+            : query(collection(db, 'teams'), where('memberIds', 'array-contains', currentUser.uid));
         const unsub = onSnapshot(
           qTeams,
           (snapshot) => {

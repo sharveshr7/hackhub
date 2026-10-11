@@ -221,6 +221,7 @@ export interface Team {
   code: string; // Invite / join code
   leaderId: string;
   members: TeamMember[];
+  memberIds?: string[];
   status: 'forming' | 'ready' | 'locked' | 'confirmed' | 'CONFIRMED';
   createdAt: string;
   updatedAt?: string;
