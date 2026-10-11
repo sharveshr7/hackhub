@@ -217,16 +217,30 @@ export const authService = {
     const uid = userCredential.user.uid;
 
     // Retrieve verified student profile from Firestore
-    const studentSnap = await getDoc(doc(db, 'students', uid));
-    if (!studentSnap.exists()) {
+    let studentSnap = await getDoc(doc(db, 'students', uid));
+    let studentData: Student | null = null;
+
+    if (studentSnap.exists()) {
+      studentData = studentSnap.data() as Student;
+    } else {
+      // Fallback: Query by verified email in students collection in case of legacy UID mapping
+      const resolvedEmail = (userCredential.user.email || targetEmail || '').trim().toLowerCase();
+      if (resolvedEmail) {
+        const emailQuery = query(collection(db, 'students'), where('email', '==', resolvedEmail));
+        const emailSnap = await getDocs(emailQuery);
+        if (!emailSnap.empty) {
+          studentData = emailSnap.docs[0].data() as Student;
+        }
+      }
+    }
+
+    if (!studentData) {
       await signOut(auth);
       useAppStore.getState().logout();
       throw new Error(
         'Student profile record not found. Your account must be provisioned by college administration.'
       );
     }
-
-    const studentData = studentSnap.data() as Student;
 
     // Verify account status
     if (studentData.accountStatus === 'disabled' || (studentData as any).isActive === false) {

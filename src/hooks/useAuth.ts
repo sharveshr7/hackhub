@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { useAppStore, CurrentUser } from '../lib/store';
 import { authService } from '../services/authService';
@@ -82,10 +82,23 @@ export function useAuth() {
 
         // 2. Check if student
         const studentDocRef = doc(db, 'students', fbUser.uid);
-        const studentSnap = await getDoc(studentDocRef);
+        let studentSnap = await getDoc(studentDocRef);
+        let studentData: Student | null = null;
 
         if (studentSnap.exists()) {
-          const studentData = studentSnap.data() as Student;
+          studentData = studentSnap.data() as Student;
+        } else if (fbUser.email) {
+          const emailQuery = query(
+            collection(db, 'students'),
+            where('email', '==', fbUser.email.toLowerCase())
+          );
+          const emailSnap = await getDocs(emailQuery);
+          if (!emailSnap.empty) {
+            studentData = emailSnap.docs[0].data() as Student;
+          }
+        }
+
+        if (studentData) {
           const isActive =
             studentData.accountStatus !== 'disabled' &&
             (studentData as any).isActive !== false;
