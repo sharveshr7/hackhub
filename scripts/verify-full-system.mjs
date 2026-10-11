@@ -147,7 +147,7 @@ check('Rules prevent applicant from self-approving or granting HOD role',
   rules.includes("request.resource.data.role != 'HOD'"));
 check('Registration lookup collection allows single document get but denies full list',
   rules.includes("match /reg_lookups/{regNo}") &&
-  rules.includes("allow get: if true") &&
+  (rules.includes("allow get: if true") || rules.includes("allow get: if isAdmin()")) &&
   rules.includes("allow list: if false"));
 
 console.log('\n================================================================');

@@ -46,7 +46,7 @@ export const StudentRegistrationsPage: React.FC = () => {
   // External Opportunity Status Update Modal State
   const [updateTargetReg, setUpdateTargetReg] = useState<Registration | null>(null);
   const [newExternalStatus, setNewExternalStatus] = useState<
-    'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'WON' | 'WITHDRAWN'
+    'PLANNING' | 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'RESULT_RECORDED' | 'WON' | 'WITHDRAWN'
   >('APPLIED_EXTERNALLY');
   const [externalNotes, setExternalNotes] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
@@ -520,10 +520,12 @@ export const StudentRegistrationsPage: React.FC = () => {
                 onChange={(e) => setNewExternalStatus(e.target.value as any)}
                 className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-blue-600 font-medium"
               >
+                <option value="PLANNING">Planning to Participate / Preparing Entry</option>
                 <option value="APPLIED_EXTERNALLY">Applied / Registered on Organizer Portal</option>
                 <option value="PARTICIPATING">Actively Participating / Building Solution</option>
-                <option value="COMPLETED">Completed / Submitted Project to Host</option>
-                <option value="WON">Won Award / Special Recognition / Cash Prize</option>
+                <option value="COMPLETED">Completed / Final Submission Delivered</option>
+                <option value="RESULT_RECORDED">Result Recorded (Student-Reported)</option>
+                <option value="WON">Won Award / Special Recognition (Student-Reported & Unverified)</option>
                 <option value="WITHDRAWN">Withdrawn</option>
               </select>
             </div>

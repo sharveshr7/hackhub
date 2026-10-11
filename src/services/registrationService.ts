@@ -143,7 +143,7 @@ export const registrationService = {
    */
   async updateExternalTrackingStatus(
     id: string,
-    externalStatus: 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'WON' | 'WITHDRAWN',
+    externalStatus: 'PLANNING' | 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'RESULT_RECORDED' | 'WON' | 'WITHDRAWN',
     notes?: string
   ): Promise<void> {
     const updates: Partial<Registration> = {

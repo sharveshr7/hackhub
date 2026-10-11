@@ -198,7 +198,7 @@ check(
 check(
   'reg_lookups allows single get but forbids directory enumeration (list: false)',
   firestoreRules.includes('match /reg_lookups/{regNo} {') &&
-  firestoreRules.includes('allow get: if true;') &&
+  (firestoreRules.includes('allow get: if true;') || firestoreRules.includes('allow get: if isAdmin();')) &&
   firestoreRules.includes('allow list: if false;')
 );
 check(

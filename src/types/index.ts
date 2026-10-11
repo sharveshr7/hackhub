@@ -241,7 +241,7 @@ export interface Registration {
   problemStatementId?: string;
   isExternal?: boolean;
   externalTrackingOnly?: boolean;
-  externalStatus?: 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'WON' | 'WITHDRAWN';
+  externalStatus?: 'PLANNING' | 'APPLIED_EXTERNALLY' | 'PARTICIPATING' | 'COMPLETED' | 'RESULT_RECORDED' | 'WON' | 'WITHDRAWN';
   externalNotes?: string;
   updatedAt?: string;
 }

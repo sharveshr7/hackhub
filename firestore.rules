@@ -86,9 +86,11 @@ service cloud.firestore {
     }
 
     // Registration Lookups: Single document lookup by normalized registration number
-    // Public get allowed for login resolution without directory enumeration (list is forbidden)
+    // Public directory enumeration is forbidden (list: false).
+    // Direct client access is restricted so unauthenticated users cannot harvest student emails.
+    // Sensitive lookup resolution is moved to trusted backend (/api/student-auth).
     match /reg_lookups/{regNo} {
-      allow get: if true;
+      allow get: if isAdmin();
       allow list: if false;
       allow write: if isAdmin();
     }
@@ -112,9 +114,14 @@ service cloud.firestore {
       allow create: if isAuthenticated() && (
         request.resource.data.studentId == request.auth.uid || isAdmin()
       );
-      allow update, delete: if isAuthenticated() && (
-        resource.data.studentId == request.auth.uid || isAdmin()
+      allow update: if isAdmin() || (
+        isAuthenticated() &&
+        resource.data.studentId == request.auth.uid &&
+        (!('studentId' in request.resource.data) || request.resource.data.studentId == resource.data.studentId) &&
+        (!('hackathonId' in request.resource.data) || request.resource.data.hackathonId == resource.data.hackathonId) &&
+        (!('registrationNumber' in request.resource.data) || request.resource.data.registrationNumber == resource.data.registrationNumber)
       );
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.studentId == request.auth.uid);
     }
 
     // Teams Collection: Created by student leader; updated by leader or members; deleted by leader or admin
