@@ -631,7 +631,7 @@ export async function verifyServerRequest(
       status: 200,
       uid,
       email,
-      role: (decodedToken.role as string) || 'AUTHENTICATED'
+      role: tokenRole || 'AUTHENTICATED'
     };
   } catch (err: any) {
     return {
