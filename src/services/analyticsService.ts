@@ -1,5 +1,4 @@
-import { db } from '../lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { useAppStore } from '../lib/store';
 
 export interface AdminStats {
   totalHackathons: number;
@@ -19,110 +18,60 @@ export interface AnalyticsData {
   attendedCount: number;
 }
 
+function asDate(value: unknown): Date | null {
+  if (value && typeof value === 'object' && 'toDate' in value && typeof (value as any).toDate === 'function') {
+    return (value as any).toDate();
+  }
+  const date = value instanceof Date ? value : new Date(String(value || ''));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Use the live, rules-scoped records already loaded for the signed-in user. */
 export const analyticsService = {
-  /**
-   * Compute live administrative KPIs directly from Firestore collections
-   */
   async getAdminOverviewStats(): Promise<AdminStats> {
-    const [hSnap, sSnap, rSnap, tSnap, subSnap] = await Promise.all([
-      getDocs(collection(db, 'hackathons')),
-      getDocs(collection(db, 'students')),
-      getDocs(collection(db, 'registrations')),
-      getDocs(collection(db, 'teams')),
-      getDocs(collection(db, 'submissions'))
-    ]);
-
-    const hackathons = hSnap.docs.map((d) => d.data());
-    const submissions = subSnap.docs.map((d) => d.data());
-
-    const totalHackathons = hSnap.size;
-    const activeHackathons = hackathons.filter(
-      (h: any) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN' || h.status === 'live' || h.status === 'registration_open'
-    ).length;
-    const totalStudents = sSnap.size;
-    const totalRegistrations = rSnap.size;
-    const activeTeams = tSnap.size;
-    const pendingSubmissions = submissions.filter((s: any) => s.isDraft).length;
-
+    const { hackathons, students, registrations, teams, submissions } = useAppStore.getState();
     return {
-      totalHackathons,
-      activeHackathons,
-      totalStudents,
-      totalRegistrations,
-      activeTeams,
-      pendingSubmissions
+      totalHackathons: hackathons.length,
+      activeHackathons: hackathons.filter((h) => ['LIVE', 'REGISTRATION_OPEN', 'PUBLISHED'].includes(String(h.status).toUpperCase())).length,
+      totalStudents: students.length,
+      totalRegistrations: registrations.length,
+      activeTeams: teams.length,
+      pendingSubmissions: submissions.filter((submission) => submission.isDraft).length
     };
   },
 
-  /**
-   * Compute real analytics from Firestore data without any fake fallbacks
-   */
   async getAnalyticsData(): Promise<AnalyticsData> {
-    const [sSnap, rSnap, tSnap, subSnap] = await Promise.all([
-      getDocs(collection(db, 'students')),
-      getDocs(collection(db, 'registrations')),
-      getDocs(collection(db, 'teams')),
-      getDocs(collection(db, 'submissions'))
-    ]);
+    const { students, registrations, teams, submissions } = useAppStore.getState();
+    const studentsMap = new Map(students.map((student) => [student.uid, student]));
+    const departmentCounts = new Map<string, number>();
+    const dateCounts = new Map<string, number>();
 
-    const studentsMap = new Map<string, any>();
-    sSnap.docs.forEach((d) => studentsMap.set(d.id, d.data()));
-
-    const registrations = rSnap.docs.map((d) => d.data() as any);
-    const submissions = subSnap.docs.map((d) => d.data() as any);
-    const totalRegistrations = registrations.length;
-
-    // 1. Department Breakdown
-    const deptCount: Record<string, number> = {};
-    registrations.forEach((reg) => {
-      const student = studentsMap.get(reg.studentId);
-      const dept = student?.department || 'Unspecified';
-      deptCount[dept] = (deptCount[dept] || 0) + 1;
-    });
-
-    const departmentData = Object.entries(deptCount).map(([name, students]) => ({
-      name,
-      students
-    }));
-
-    // 2. Real Registration Trend by Date
-    const dateCount: Record<string, number> = {};
-    registrations.forEach((reg) => {
-      if (reg.registeredAt) {
-        const dateStr = new Date(reg.registeredAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
-        dateCount[dateStr] = (dateCount[dateStr] || 0) + 1;
+    registrations.forEach((registration) => {
+      const department = studentsMap.get(registration.studentId)?.department || registration.department || 'Unspecified';
+      departmentCounts.set(department, (departmentCounts.get(department) || 0) + 1);
+      const date = asDate(registration.registeredAt);
+      if (date) {
+        const label = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        dateCounts.set(label, (dateCounts.get(label) || 0) + 1);
       }
     });
 
-    const registrationTrend = Object.entries(dateCount).map(([day, count]) => ({
-      day,
-      count
-    }));
-
-    // 3. Submissions breakdown
-    const submittedCount = submissions.filter((s) => !s.isDraft).length;
-    const draftCount = submissions.filter((s) => s.isDraft).length;
-    const pendingCount = Math.max(0, tSnap.size - submissions.length);
-
-    const submissionStats = [
-      { name: 'Submitted', value: submittedCount, color: '#10B981' },
-      { name: 'Drafts', value: draftCount, color: '#F59E0B' },
-      { name: 'Pending Squads', value: pendingCount, color: '#64748B' }
-    ];
-
-    // 4. Attendance
-    const attendedCount = registrations.filter(
-      (r) => r.attendanceStatus === 'PRESENT' || r.status === 'ATTENDED' || r.status === 'SUBMITTED'
+    const submittedCount = submissions.filter((submission) => !submission.isDraft || submission.status === 'SUBMITTED').length;
+    const draftCount = submissions.filter((submission) => submission.isDraft).length;
+    const attendedCount = registrations.filter((registration) =>
+      registration.attendanceStatus === 'PRESENT' || registration.status === 'ATTENDED' || registration.status === 'SUBMITTED'
     ).length;
-    const attendancePercentage = totalRegistrations > 0
-      ? Math.round((attendedCount / totalRegistrations) * 100)
-      : 0;
+    const totalRegistrations = registrations.length;
 
     return {
-      departmentData,
-      registrationTrend,
-      submissionStats,
-      attendancePercentage,
+      departmentData: Array.from(departmentCounts, ([name, students]) => ({ name, students })),
+      registrationTrend: Array.from(dateCounts, ([day, count]) => ({ day, count })),
+      submissionStats: [
+        { name: 'Submitted', value: submittedCount, color: '#10B981' },
+        { name: 'Drafts', value: draftCount, color: '#F59E0B' },
+        { name: 'Pending Squads', value: Math.max(0, teams.length - submissions.length), color: '#64748B' }
+      ],
+      attendancePercentage: totalRegistrations ? Math.round((attendedCount / totalRegistrations) * 100) : 0,
       totalRegistrations,
       attendedCount
     };

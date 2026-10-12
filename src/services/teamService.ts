@@ -6,13 +6,11 @@ import {
   where,
   doc,
   getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp
 } from 'firebase/firestore';
 import { useAppStore } from '../lib/store';
-import { Team, Student, TeamMember } from '../types';
+import { Team, Student } from '../types';
+import { isStaffRole } from '../utils/access';
+import { isPlatformAdministrator } from '../utils/access';
 
 export const teamService = {
   /**
@@ -20,8 +18,14 @@ export const teamService = {
    */
   async getTeamsByHackathon(hackathonId: string): Promise<Team[]> {
     const currentUser = useAppStore.getState().currentUser;
-    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD') {
-      const q = query(collection(db, 'teams'), where('hackathonId', '==', hackathonId));
+    if (isStaffRole(currentUser?.role)) {
+      const constraints = [where('hackathonId', '==', hackathonId)];
+      if (!isPlatformAdministrator(currentUser)) {
+        constraints.push(where('department', '==', currentUser?.adminData?.department || '') as any);
+        const years = currentUser?.adminData?.authorizedYears || [];
+        if (years.length) constraints.push(where('academicYear', 'in', years.slice(0, 10)) as any);
+      }
+      const q = query(collection(db, 'teams'), ...constraints);
       const snap = await getDocs(q);
       const teams = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Team));
       useAppStore.setState((state) => ({
@@ -75,68 +79,34 @@ export const teamService = {
     name: string,
     leader: Student
   ): Promise<{ success: boolean; team?: Team; message: string }> {
-    // 1. Check if student is already in a team for this hackathon
-    const existingTeam = await this.getStudentTeam(hackathonId, leader.uid);
-    if (existingTeam) {
-      return { success: false, message: 'You are already a member of squad "' + existingTeam.name + '".' };
+    const currentAuthUser = auth.currentUser;
+    const idToken = await currentAuthUser?.getIdToken();
+    if (!currentAuthUser || !idToken || currentAuthUser.uid !== leader.uid) {
+      return { success: false, message: 'Sign in as the student account before creating a team.' };
     }
-
-    // 2. Generate unique 6-character team invite code
-    const randCode = Math.random().toString(36).substring(2, 7).toUpperCase();
-    const code = `TEAM-${randCode}`;
-    const teamId = `team_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
-
-    const leaderMember: TeamMember = {
-      studentId: leader.uid,
-      name: leader.name,
-      email: leader.email,
-      department: leader.department,
-      registerNumber: leader.registerNumber,
-      role: 'LEADER',
-      joinedAt: new Date().toISOString()
-    };
-
-    const newTeam: Team = {
-      id: teamId,
-      hackathonId,
-      name: name.trim(),
-      code,
-      leaderId: leader.uid,
-      department: leader.department,
-      members: [leaderMember],
-      memberIds: [leader.uid],
-      status: 'CONFIRMED',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-
-    // Save to Firestore
-    await setDoc(doc(db, 'teams', teamId), {
-      ...newTeam,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    // Update student's registration to attach teamId
-    const regQ = query(
-      collection(db, 'registrations'),
-      where('hackathonId', '==', hackathonId),
-      where('studentId', '==', leader.uid)
-    );
-    const regSnap = await getDocs(regQ);
-    if (!regSnap.empty) {
-      await updateDoc(doc(db, 'registrations', regSnap.docs[0].id), {
-        teamId,
-        updatedAt: serverTimestamp()
+    try {
+      const response = await fetch('/api/student-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ action: 'create-team', hackathonId, name })
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success || !data.team) {
+        return { success: false, message: data.error || 'Team could not be created. Try again.' };
+      }
+      const newTeam = data.team as Team;
+      useAppStore.setState((state) => ({
+        teams: [newTeam, ...state.teams.filter((team) => team.id !== newTeam.id)],
+        registrations: state.registrations.map((registration) =>
+          registration.hackathonId === hackathonId && registration.studentId === leader.uid
+            ? { ...registration, teamId: newTeam.id }
+            : registration
+        )
+      }));
+      return { success: true, team: newTeam, message: `Team created. Share code ${newTeam.code} with your teammates.` };
+    } catch {
+      return { success: false, message: 'Team service is unavailable. Please try again.' };
     }
-
-    useAppStore.getState().createTeam(hackathonId, name, leader);
-    return {
-      success: true,
-      team: newTeam,
-      message: 'Squad created successfully! Share code ' + code + ' with your teammates.'
-    };
   },
 
   /**
@@ -147,163 +117,115 @@ export const teamService = {
     student: Student
   ): Promise<{ success: boolean; team?: Team; message: string }> {
     const cleanCode = code.trim().toUpperCase();
-
-    // 1. Attempt secure join via backend serverless endpoint
+    const currentAuthUser = auth.currentUser;
+    const idToken = await currentAuthUser?.getIdToken();
+    if (!currentAuthUser || !idToken || currentAuthUser.uid !== student.uid) {
+      return { success: false, message: 'Sign in as the student account before joining a team.' };
+    }
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      if (idToken) {
-        const res = await fetch('/api/student-auth', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${idToken}`
-          },
-          body: JSON.stringify({
-            action: 'join-team',
-            code: cleanCode,
-            student
-          })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) {
-          useAppStore.getState().joinTeamByCode(code, student);
-          return { success: true, team: data.team, message: data.message };
-        } else if (data?.error) {
-          return { success: false, message: data.error };
-        }
-      }
-    } catch (err: any) {
-      console.warn('[TeamService] Backend join-team route note:', err.message);
-    }
-
-    // 2. Client-side fallback if server endpoint is unavailable
-    const q = query(collection(db, 'teams'), where('code', '==', cleanCode));
-    const snap = await getDocs(q);
-
-    if (snap.empty) {
-      return { success: false, message: 'Invalid team invite code. No squad found.' };
-    }
-
-    const teamDoc = snap.docs[0];
-    const team = { id: teamDoc.id, ...teamDoc.data() } as Team;
-
-    // Check capacity (max 4 members)
-    if (team.members && team.members.length >= 4) {
-      return { success: false, message: 'This squad has reached maximum capacity (4/4 members).' };
-    }
-
-    // Check if already in this team
-    if (team.members && team.members.some((m) => m.studentId === student.uid)) {
-      return { success: false, message: 'You are already in this squad.' };
-    }
-
-    // Check if already in another team for this hackathon
-    const existing = await this.getStudentTeam(team.hackathonId, student.uid);
-    if (existing) {
-      return { success: false, message: 'You are already in squad "' + existing.name + '" for this hackathon.' };
-    }
-
-    const newMember: TeamMember = {
-      studentId: student.uid,
-      name: student.name,
-      email: student.email,
-      department: student.department,
-      registerNumber: student.registerNumber,
-      role: 'MEMBER',
-      joinedAt: new Date().toISOString()
-    };
-
-    const updatedMembers = [...team.members, newMember];
-    const updatedMemberIds = [...(team.memberIds || team.members.map((m) => m.studentId)), student.uid];
-
-    await updateDoc(doc(db, 'teams', team.id), {
-      members: updatedMembers,
-      memberIds: updatedMemberIds,
-      updatedAt: serverTimestamp()
-    });
-
-    // Update student's registration
-    const regQ = query(
-      collection(db, 'registrations'),
-      where('hackathonId', '==', team.hackathonId),
-      where('studentId', '==', student.uid)
-    );
-    const regSnap = await getDocs(regQ);
-    if (!regSnap.empty) {
-      await updateDoc(doc(db, 'registrations', regSnap.docs[0].id), {
-        teamId: team.id,
-        updatedAt: serverTimestamp()
+      const response = await fetch('/api/student-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ action: 'join-team', code: cleanCode })
       });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success || !data.team) {
+        return { success: false, message: data.error || 'Team join could not be completed.' };
+      }
+      const team = data.team as Team;
+      useAppStore.setState((state) => ({
+        teams: [team, ...state.teams.filter((item) => item.id !== team.id)],
+        registrations: state.registrations.map((registration) =>
+          registration.hackathonId === team.hackathonId && registration.studentId === student.uid
+            ? { ...registration, teamId: team.id }
+            : registration
+        )
+      }));
+      return { success: true, team, message: data.message || `Joined ${team.name}.` };
+    } catch {
+      return { success: false, message: 'Team service is unavailable. Please try again.' };
     }
-
-    useAppStore.getState().joinTeamByCode(code, student);
-    return {
-      success: true,
-      team: { ...team, members: updatedMembers, memberIds: updatedMemberIds },
-      message: 'Successfully joined ' + team.name + '!'
-    };
   },
 
   /**
    * Leave team
    */
   async leaveTeam(teamId: string, studentId: string): Promise<{ success: boolean; message: string }> {
-    const snap = await getDoc(doc(db, 'teams', teamId));
-    if (!snap.exists()) {
-      return { success: false, message: 'Team not found.' };
+    const currentAuthUser = auth.currentUser;
+    const idToken = await currentAuthUser?.getIdToken();
+    if (!currentAuthUser || !idToken || currentAuthUser.uid !== studentId) return { success: false, message: 'Sign in as this student before leaving the team.' };
+    try {
+      const response = await fetch('/api/student-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ action: 'leave-team', teamId })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) return { success: false, message: data.error || 'Team membership could not be updated.' };
+      useAppStore.setState((state) => ({
+        teams: data.team
+          ? [data.team as Team, ...state.teams.filter((team) => team.id !== teamId)]
+          : state.teams.filter((team) => team.id !== teamId),
+        registrations: state.registrations.map((registration) =>
+          registration.teamId === teamId && registration.studentId === studentId
+            ? { ...registration, teamId: undefined }
+            : registration
+        )
+      }));
+      return { success: true, message: data.message || 'You left the team.' };
+    } catch {
+      return { success: false, message: 'Team service is unavailable. Please try again.' };
     }
-    const team = snap.data() as Team;
-
-    if (team.members.length <= 1) {
-      // Disband if only member
-      return this.disbandTeam(teamId);
-    }
-
-    const updatedMembers = team.members.filter((m) => m.studentId !== studentId);
-    const updatedMemberIds = (team.memberIds || team.members.map((m) => m.studentId)).filter((id) => id !== studentId);
-    let newLeaderId = team.leaderId;
-    if (team.leaderId === studentId && updatedMembers.length > 0) {
-      updatedMembers[0].role = 'LEADER';
-      newLeaderId = updatedMembers[0].studentId;
-    }
-
-    await updateDoc(doc(db, 'teams', teamId), {
-      members: updatedMembers,
-      memberIds: updatedMemberIds,
-      leaderId: newLeaderId,
-      updatedAt: serverTimestamp()
-    });
-
-    useAppStore.getState().leaveTeam(teamId, studentId);
-    return { success: true, message: 'You have left the squad.' };
   },
 
   /**
    * Remove a member (by leader or admin)
    */
   async removeMember(teamId: string, memberId: string): Promise<{ success: boolean; message: string }> {
-    const snap = await getDoc(doc(db, 'teams', teamId));
-    if (!snap.exists()) return { success: false, message: 'Team not found.' };
-    const team = snap.data() as Team;
-
-    const updatedMembers = team.members.filter((m) => m.studentId !== memberId);
-    const updatedMemberIds = (team.memberIds || team.members.map((m) => m.studentId)).filter((id) => id !== memberId);
-    await updateDoc(doc(db, 'teams', teamId), {
-      members: updatedMembers,
-      memberIds: updatedMemberIds,
-      updatedAt: serverTimestamp()
-    });
-
-    useAppStore.getState().removeTeamMember(teamId, memberId);
-    return { success: true, message: 'Member removed from squad.' };
+    const idToken = await auth.currentUser?.getIdToken();
+    if (!idToken) return { success: false, message: 'Sign in before removing a team member.' };
+    try {
+      const response = await fetch('/api/student-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ action: 'remove-team-member', teamId, memberId })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) return { success: false, message: data.error || 'Team member could not be removed.' };
+      useAppStore.setState((state) => ({
+        teams: data.team
+          ? [data.team as Team, ...state.teams.filter((team) => team.id !== teamId)]
+          : state.teams.filter((team) => team.id !== teamId),
+        registrations: state.registrations.map((registration) =>
+          registration.studentId === memberId && registration.teamId === teamId
+            ? { ...registration, teamId: undefined }
+            : registration
+        )
+      }));
+      return { success: true, message: data.message || 'Member removed from squad.' };
+    } catch {
+      return { success: false, message: 'Team service is unavailable. Please try again.' };
+    }
   },
 
   /**
    * Disband squad
    */
   async disbandTeam(teamId: string): Promise<{ success: boolean; message: string }> {
-    await deleteDoc(doc(db, 'teams', teamId));
-    useAppStore.getState().disbandTeam(teamId);
-    return { success: true, message: 'Squad disbanded successfully.' };
+    const idToken = await auth.currentUser?.getIdToken();
+    if (!idToken) return { success: false, message: 'Sign in before disbanding a team.' };
+    try {
+      const response = await fetch('/api/student-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ action: 'disband-team', teamId })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) return { success: false, message: data.error || 'Team could not be disbanded.' };
+      useAppStore.getState().disbandTeam(teamId);
+      return { success: true, message: data.message || 'Team disbanded successfully.' };
+    } catch {
+      return { success: false, message: 'Team service is unavailable. Please try again.' };
+    }
   }
 };

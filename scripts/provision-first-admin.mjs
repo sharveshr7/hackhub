@@ -7,10 +7,11 @@
  * using the Firebase Admin SDK.
  * 
  * Usage:
- *   node scripts/provision-first-admin.mjs --project <projectId> --email <adminEmail> [options]
+ *   node scripts/provision-first-admin.mjs --platform-admin --project <projectId> --email <adminEmail> [options]
  * 
  * Options:
- *   --project <id>          Firebase Project ID (mandatory: must match expected project e.g. foceye-2546c)
+ *   --platform-admin        Explicitly confirm platform-wide administrator scope for this account
+ *   --project <id>          Firebase Project ID (mandatory; configure FIREBASE_PROJECT_ID to pin the expected project)
  *   --email <email>         Institutional email of the faculty member to promote/provision
  *   --key <path>            Path to Firebase Service Account JSON key (optional if GOOGLE_APPLICATION_CREDENTIALS set)
  *   --token <token>         OAuth access token (optional alternative to service account file)
@@ -18,6 +19,7 @@
  *   --dept <dept>           Academic department (optional, defaults to existing profile)
  *   --designation <title>   Faculty designation (optional, defaults to existing profile)
  *   --faculty-id <id>       College employee/faculty ID (optional, defaults to existing profile)
+ *   --institution <name>    College name (optional, defaults to existing profile)
  *   --dry-run               Validate configuration and user status without modifying database
  * 
  * Security Guardrails:
@@ -57,7 +59,7 @@ function parseArgs() {
 
 const args = parseArgs();
 
-const EXPECTED_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || 'foceye-2546c';
+const EXPECTED_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
 const projectId = args.project || process.env.FIREBASE_PROJECT_ID;
 const targetEmail = (args.email || '').trim().toLowerCase();
 const serviceAccountPath = args.key || process.env.GOOGLE_APPLICATION_CREDENTIALS;
@@ -78,7 +80,12 @@ async function main() {
     process.exit(1);
   }
 
-  if (projectId !== EXPECTED_PROJECT_ID) {
+  if (!args['platform-admin']) {
+    console.error('Error: pass --platform-admin only for the specifically authorized initial platform administrator.');
+    process.exit(1);
+  }
+
+  if (EXPECTED_PROJECT_ID && projectId !== EXPECTED_PROJECT_ID) {
     console.warn(`⚠️ Warning: Specified project ID (${projectId}) does not match default application project (${EXPECTED_PROJECT_ID}).`);
     console.warn(`   Proceeding with explicit target: ${projectId}\n`);
   }
@@ -220,18 +227,23 @@ async function main() {
     process.exit(0);
   }
 
-  const isHod = !!args.hod || args.role === 'HOD' || (args.designation && args.designation.toLowerCase().includes('head of department')) || (existingAdminData.designation && existingAdminData.designation.toLowerCase().includes('head of department'));
-  const targetRole = isHod ? 'HOD' : (args.role ? args.role.toUpperCase() : 'ADMIN');
+  const legacyHodRecord = String(existingAdminData.role || '').toUpperCase() === 'HOD' || existingAdminData.isHod === true ||
+    String(existingAdminData.designation || '').toLowerCase().includes('head of department');
+  if (legacyHodRecord) {
+    console.error('This account contains a legacy HOD profile. Select the authorized initial administrator account explicitly; this script will not convert HOD access into platform access.');
+    process.exit(1);
+  }
+  const targetRole = 'ADMIN';
 
   // 8. Grant Authorization Claims in Firebase Auth
-  console.log(`\n[Step 4] Granting Firebase Auth Custom Claims: { role: '${targetRole}', admin: true${isHod ? ', hod: true' : ''} }...`);
+  console.log(`\n[Step 4] Granting Firebase Auth Custom Claims: { role: '${targetRole}', admin: true }...`);
   try {
     const existingClaims = authUser.customClaims || {};
+    const { hod: _legacyHodClaim, isHod: _legacyIsHodClaim, ...safeClaims } = existingClaims;
     const newClaims = {
-      ...existingClaims,
+      ...safeClaims,
       role: targetRole,
-      admin: true,
-      ...(isHod ? { hod: true } : {})
+      admin: true
     };
     await auth.setCustomUserClaims(uid, newClaims);
     console.log('✅ Firebase Auth Custom Claims applied successfully.');
@@ -247,18 +259,19 @@ async function main() {
   const adminProfileData = {
     uid: uid,
     email: targetEmail,
-    name: args.name || existingAdminData.name || authUser.displayName || (isHod ? 'Head of Department' : 'College Administrator'),
-    department: args.dept || existingAdminData.department || 'Administration & Student Innovation',
-    designation: args.designation || existingAdminData.designation || (isHod ? 'Head of Department (HOD)' : 'Institutional Administrator & Convenor'),
-    facultyId: args['faculty-id'] || existingAdminData.facultyId || (isHod ? 'HOD-MAIN' : 'ADMIN-FIRST'),
-    phone: existingAdminData.phone || '9442445330',
-    institution: existingAdminData.institution || 'KalaignarKarunanidhi Institute Of Technology',
+    name: args.name || existingAdminData.name || authUser.displayName || '',
+    department: args.dept || existingAdminData.department || '',
+    designation: args.designation || existingAdminData.designation || 'Institutional Administrator',
+    facultyId: args['faculty-id'] || existingAdminData.facultyId || '',
+    phone: existingAdminData.phone || '',
+    institution: args.institution || existingAdminData.institution || '',
     role: targetRole,
-    isHod: isHod,
+    isPlatformAdmin: true,
+    isDepartmentApprover: false,
     isActive: true,
     approvalStatus: 'APPROVED',
     approvedAt: FieldValue.serverTimestamp(),
-    approvedBy: `System Bootstrap CLI (${isHod ? 'Head of Department' : 'First Administrator'} Provisioning)`,
+    approvedBy: 'System Bootstrap CLI (Explicit Platform Administrator Provisioning)',
     isFirstAdmin: true,
     updatedAt: FieldValue.serverTimestamp()
   };
@@ -268,7 +281,7 @@ async function main() {
   }
 
   try {
-    await adminDocRef.set(adminProfileData, { merge: true });
+    await adminDocRef.set({ ...adminProfileData, isHod: FieldValue.delete() }, { merge: true });
     console.log(`✅ Firestore admins/${uid} updated with approvalStatus: 'APPROVED' and role: '${targetRole}'.`);
 
     // Write audit log
@@ -282,16 +295,16 @@ async function main() {
       targetUid: uid,
       targetEmail: targetEmail,
       targetName: adminProfileData.name,
-      action: isHod ? 'HOD_PROVISIONED' : 'ADMIN_APPROVED',
+      action: 'INITIAL_ADMIN_PROVISIONED',
       timestamp: FieldValue.serverTimestamp(),
       details: {
         role: targetRole,
         department: adminProfileData.department,
         designation: adminProfileData.designation,
-        isHod
+        isPlatformAdmin: true
       }
     });
-    console.log(`✅ Immutable audit log created with action: '${isHod ? 'HOD_PROVISIONED' : 'ADMIN_APPROVED'}'.`);
+    console.log(`✅ Immutable audit log created with action: 'INITIAL_ADMIN_PROVISIONED'.`);
   } catch (docErr) {
     console.error('❌ Error writing to Firestore admins collection:', docErr.message);
     process.exit(1);

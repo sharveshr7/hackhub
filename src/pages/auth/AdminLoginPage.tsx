@@ -6,6 +6,7 @@ import { Input } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { useToast } from '../../components/common/Toast';
+import { isStaffRole } from '../../utils/access';
 import {
   Shield,
   Mail,
@@ -37,11 +38,10 @@ export const AdminLoginPage: React.FC = () => {
   const { showToast } = useToast();
   const currentUser = useAppStore((state) => state.currentUser);
 
-  // If already authenticated as Admin or HOD, redirect directly
+  // If already authenticated as Admin, redirect directly
   useEffect(() => {
-    if (currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD') {
-      const defaultDest = currentUser.role === 'HOD' ? '/hod' : '/admin';
-      const from = (location.state as any)?.from?.pathname || defaultDest;
+    if (isStaffRole(currentUser?.role)) {
+      const from = (location.state as any)?.from?.pathname || '/admin';
       navigate(from, { replace: true });
     }
   }, [currentUser, navigate, location]);
@@ -52,10 +52,9 @@ export const AdminLoginPage: React.FC = () => {
     setError(null);
 
     try {
-      const authUser = await authService.loginAdmin(email, password);
+      await authService.loginAdmin(email, password);
       showToast('success', 'Sign In Successful', 'Welcome to the HackHub Administrative Portal.');
-      const defaultDest = authUser.role === 'HOD' ? '/hod' : '/admin';
-      const from = (location.state as any)?.from?.pathname || defaultDest;
+      const from = (location.state as any)?.from?.pathname || '/admin';
       navigate(from, { replace: true });
     } catch (err: any) {
       setError(err.message || 'Unable to sign in. Please try again.');

@@ -85,14 +85,19 @@ async function runDynamicTests() {
   // Test B: Missing server credentials returns explicit 503 for registration numbers
   // (In test environment without FIREBASE_SERVICE_ACCOUNT)
   const originalEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+  const originalCliAuth = process.env.DISABLE_LOCAL_CLI_AUTH;
   delete process.env.FIREBASE_SERVICE_ACCOUNT;
   delete process.env.FIREBASE_CLIENT_EMAIL;
   delete process.env.FIREBASE_PRIVATE_KEY;
+  process.env.DISABLE_LOCAL_CLI_AUTH = 'true';
 
   const regNoRes = await handleStudentAuth(
     { identifier: '711525BBM053', password: 'TestPassword123!' },
     '127.0.0.1'
   );
+
+  if (originalCliAuth !== undefined) process.env.DISABLE_LOCAL_CLI_AUTH = originalCliAuth;
+  else delete process.env.DISABLE_LOCAL_CLI_AUTH;
 
   assert(
     regNoRes.status === 503 && regNoRes.body.error.includes('Server authentication configuration required'),

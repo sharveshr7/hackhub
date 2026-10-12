@@ -25,6 +25,8 @@ import {
   Eye
 } from 'lucide-react';
 import { Submission, SubmissionStatus } from '../../types';
+import { downloadExcelWorkbook, getHackathonReportTitle, resolveHackathonReference } from '../../utils/excelExport.mjs';
+import { isPlatformAdministrator } from '../../utils/access';
 
 export const AdminSubmissionsPage: React.FC = () => {
   const submissions = useAppStore((state) => state.submissions);
@@ -32,8 +34,7 @@ export const AdminSubmissionsPage: React.FC = () => {
   const teams = useAppStore((state) => state.teams);
   const students = useAppStore((state) => state.students);
   const currentUser = useAppStore((state) => state.currentUser);
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const facultyDept = currentUser?.adminData?.department;
+  const facultyDept = isPlatformAdministrator(currentUser) ? undefined : currentUser?.adminData?.department;
   const { showToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,8 +51,8 @@ export const AdminSubmissionsPage: React.FC = () => {
 
   // Scoped submissions by department
   const scopedSubmissions = useMemo(() => {
-    if (isHod) return submissions;
     return submissions.filter((s) => {
+      if (isPlatformAdministrator(currentUser)) return true;
       if (s.department && s.department === facultyDept) return true;
       const team = teams.find((t) => t.id === s.teamId);
       if (team && (team as any).department === facultyDept) return true;
@@ -61,7 +62,7 @@ export const AdminSubmissionsPage: React.FC = () => {
       if (hackathon && (hackathon.department === facultyDept || hackathon.publishedBy === currentUser?.uid)) return true;
       return false;
     });
-  }, [submissions, isHod, facultyDept, teams, students, hackathons, currentUser]);
+  }, [submissions, facultyDept, teams, students, hackathons, currentUser]);
 
   // Stats calculation
   const totalCount = scopedSubmissions.length;
@@ -94,12 +95,18 @@ export const AdminSubmissionsPage: React.FC = () => {
     setScore(sub.evaluationScore || 85);
     setFeedback(sub.evaluationFeedback || '');
     setRank(sub.rank || '');
-    setModalStatus(sub.status || 'EVALUATED');
+    setModalStatus(sub.isDraft || sub.status === 'DRAFT'
+      ? 'DRAFT'
+      : (['UNDER_REVIEW', 'SHORTLISTED', 'EVALUATED', 'WINNER'].includes(sub.status) ? sub.status : 'UNDER_REVIEW'));
   };
 
   const handleSaveEvaluation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSubmission) return;
+    if (selectedSubmission.isDraft || selectedSubmission.status === 'DRAFT') {
+      showToast('info', 'Draft Is View Only', 'The team must submit this project before it can be evaluated.');
+      return;
+    }
     setIsLoading(true);
 
     try {
@@ -126,46 +133,47 @@ export const AdminSubmissionsPage: React.FC = () => {
     }
   };
 
-  const exportCSV = () => {
-    const headers = [
-      'Submission ID',
-      'Project Title',
-      'Team Name',
-      'Hackathon',
-      'Problem Statement',
-      'Status',
-      'Jury Score',
-      'Rank',
-      'GitHub URL',
-      'Demo URL',
-      'Submitted At'
-    ];
-    const rows = filteredSubmissions.map((s) => {
-      const h = hackathons.find((hack) => hack.id === s.hackathonId);
-      return [
-        s.id,
-        `"${s.projectTitle.replace(/"/g, '""')}"`,
-        `"${s.teamName.replace(/"/g, '""')}"`,
-        `"${(h?.title || s.hackathonId).replace(/"/g, '""')}"`,
-        `"${s.problemStatementTitle.replace(/"/g, '""')}"`,
-        s.status,
-        s.evaluationScore || '',
-        `"${(s.rank || '').replace(/"/g, '""')}"`,
-        s.githubUrl || '',
-        s.demoUrl || '',
-        s.submittedAt || s.updatedAt
-      ].join(',');
+  const exportExcel = () => {
+    const rows = filteredSubmissions.map((submission) => {
+      const hackathon = resolveHackathonReference(submission.hackathonId, hackathons);
+      return {
+        submissionId: submission.id,
+        projectTitle: submission.projectTitle,
+        teamName: submission.teamName,
+        hackathonName: hackathon.name,
+        hackathonId: hackathon.id,
+        hackathonReferenceStatus: hackathon.status,
+        problemStatement: submission.problemStatementTitle,
+        status: submission.status,
+        juryScore: submission.evaluationScore ?? '',
+        rank: submission.rank || '',
+        githubUrl: submission.githubUrl || '',
+        demoUrl: submission.demoUrl || '',
+        submittedAt: submission.submittedAt || submission.updatedAt || ''
+      };
     });
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `KIT_Hackathon_Submissions_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('info', 'Export Successful', 'Downloaded submissions evaluation roster.');
+    downloadExcelWorkbook({
+      sheetName: 'Submissions',
+      title: `Submission report — ${getHackathonReportTitle(selectedHackathon, hackathons)}`,
+      fileName: `hackhub-submissions-${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { header: 'Submission ID', key: 'submissionId' },
+        { header: 'Project Title', key: 'projectTitle' },
+        { header: 'Team Name', key: 'teamName' },
+        { header: 'Hackathon Name', key: 'hackathonName' },
+        { header: 'Hackathon ID', key: 'hackathonId' },
+        { header: 'Hackathon Reference Status', key: 'hackathonReferenceStatus' },
+        { header: 'Problem Statement', key: 'problemStatement' },
+        { header: 'Status', key: 'status' },
+        { header: 'Jury Score', key: 'juryScore' },
+        { header: 'Rank', key: 'rank' },
+        { header: 'GitHub URL', key: 'githubUrl' },
+        { header: 'Demo URL', key: 'demoUrl' },
+        { header: 'Submitted At', key: 'submittedAt' }
+      ],
+      rows
+    });
+    showToast('info', 'Export Successful', 'Downloaded the filtered submissions report as Excel.');
   };
 
   // Find team for currently selected submission
@@ -236,10 +244,10 @@ export const AdminSubmissionsPage: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={exportCSV}
+            onClick={exportExcel}
             leftIcon={<Download className="w-3.5 h-3.5" />}
           >
-            Export Evaluation CSV
+            Export Evaluation Excel
           </Button>
         }
       />
@@ -781,13 +789,14 @@ export const AdminSubmissionsPage: React.FC = () => {
                   <select
                     value={modalStatus}
                     onChange={(e) => setModalStatus(e.target.value as SubmissionStatus)}
+                    disabled={selectedSubmission.isDraft || selectedSubmission.status === 'DRAFT'}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white text-slate-800 focus:outline-none focus:border-navy-900"
                   >
-                    <option value="DRAFT">Draft</option>
-                    <option value="SUBMITTED">Submitted</option>
+                    {(selectedSubmission.isDraft || selectedSubmission.status === 'DRAFT') && <option value="DRAFT">Draft (view only)</option>}
                     <option value="UNDER_REVIEW">Under Review</option>
                     <option value="SHORTLISTED">Shortlisted</option>
                     <option value="EVALUATED">Evaluated</option>
+                    <option value="WINNER">Winner</option>
                   </select>
                 </div>
 
@@ -809,6 +818,9 @@ export const AdminSubmissionsPage: React.FC = () => {
               />
 
               <div className="flex justify-end gap-3 pt-2">
+                {(selectedSubmission.isDraft || selectedSubmission.status === 'DRAFT') && (
+                  <p className="mr-auto self-center text-[11px] text-amber-700">Submit this project before evaluation.</p>
+                )}
                 <Button
                   variant="ghost"
                   type="button"
@@ -816,7 +828,7 @@ export const AdminSubmissionsPage: React.FC = () => {
                 >
                   Cancel
                 </Button>
-                <Button variant="primary" type="submit" isLoading={isLoading}>
+                <Button variant="primary" type="submit" isLoading={isLoading} disabled={selectedSubmission.isDraft || selectedSubmission.status === 'DRAFT'}>
                   Save Evaluation & Score
                 </Button>
               </div>

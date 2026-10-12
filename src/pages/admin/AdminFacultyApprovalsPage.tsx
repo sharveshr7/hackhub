@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
 import { adminService } from '../../services/adminService';
 import { useToast } from '../../components/common/Toast';
@@ -6,6 +7,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { Admin } from '../../types';
+import { isDepartmentApprover } from '../../utils/access';
 import { SUPPORTED_DEPARTMENTS, isSupportedDepartment, getDepartmentBadge } from '../../constants/departments';
 import {
   Shield,
@@ -33,14 +35,12 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
   const admins = useAppStore((state) => state.admins);
   const { showToast } = useToast();
 
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const isDeptApprover = currentUser?.adminData?.isDepartmentApprover === true;
+  const isDeptApprover = isDepartmentApprover(currentUser);
   const approverDept = currentUser?.adminData?.department;
 
   const canApprove = (admin: Admin) => {
     if (admin.uid === currentUser?.uid) return false;
     if (!isSupportedDepartment(admin.department)) return false;
-    if (isHod) return true;
     if (isDeptApprover && approverDept && admin.department === approverDept) {
       return true;
     }
@@ -73,14 +73,14 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadAdmins();
-  }, []);
+    if (isDeptApprover) loadAdmins();
+  }, [isDeptApprover]);
 
   // Compute status counts
   const counts = useMemo(() => {
     const total = admins.length;
     const pending = admins.filter((a) => a.approvalStatus === 'PENDING').length;
-    const approved = admins.filter((a) => a.approvalStatus === 'APPROVED' || (!a.approvalStatus && (a.role || '').toUpperCase() === 'ADMIN')).length;
+    const approved = admins.filter((a) => a.approvalStatus === 'APPROVED' || (!a.approvalStatus && ['ADMIN', 'FACULTY'].includes((a.role || '').toUpperCase()))).length;
     const rejected = admins.filter((a) => a.approvalStatus === 'REJECTED').length;
     return { total, pending, approved, rejected };
   }, [admins]);
@@ -93,7 +93,7 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
   // Filtered and searched list
   const filteredAdmins = useMemo(() => {
     return admins.filter((admin) => {
-      const status = admin.approvalStatus || ((admin.role || '').toUpperCase() === 'ADMIN' ? 'APPROVED' : 'PENDING');
+      const status = admin.approvalStatus || (['ADMIN', 'FACULTY'].includes((admin.role || '').toUpperCase()) ? 'APPROVED' : 'PENDING');
       
       if (filterStatus !== 'ALL' && status !== filterStatus) {
         return false;
@@ -176,6 +176,8 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
     return 'N/A';
   };
 
+  if (!isDeptApprover) return <Navigate to="/admin" replace />;
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Page Header */}
@@ -200,16 +202,12 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
 
       {/* Security Governance Notice */}
       <div className={`p-4 rounded-xl border text-xs flex items-start gap-3 shadow-sm ${
-        isHod
-          ? 'bg-slate-900 border-slate-800 text-slate-300'
-          : isDeptApprover
+        isDeptApprover
           ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200'
           : 'bg-amber-950/20 border-amber-800/40 text-amber-200'
       }`}>
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
-          isHod
-            ? 'bg-blue-500/20 text-cyan-400 border-blue-500/30'
-            : isDeptApprover
+          isDeptApprover
             ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
             : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
         }`}>
@@ -217,18 +215,14 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
         </div>
         <div className="space-y-1">
           <p className="font-bold text-white text-xs">
-            {isHod
-              ? 'Institutional Governance Console (Head of Department)'
-              : isDeptApprover
+            {isDeptApprover
               ? `Authorized Department Approver Console (${approverDept})`
-              : 'Department Faculty Coordinator Console'}
+              : 'Department Faculty Coordinator View'}
           </p>
           <p className="leading-relaxed text-[11px] opacity-90">
-            {isHod
-              ? 'As the Head of Department, you have institution-wide authority to review, approve, or reject faculty registrations across all departments, and designate authorized department approvers.'
-              : isDeptApprover
-              ? `You are designated by the HOD as an authorized Department Approver for ${approverDept}. You can review and approve faculty registrations strictly within your department scope.`
-              : 'Pending faculty registrations require approval from the Head of Department (HOD) or your designated Department Approver before administrative tools are unlocked.'}
+            {isDeptApprover
+              ? `You are an authorized Department Approver for ${approverDept}. You can review and approve faculty registrations strictly within your department scope.`
+              : 'Pending faculty registrations require review by your designated Department Approver before administrative tools are unlocked.'}
           </p>
         </div>
       </div>
@@ -584,7 +578,7 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
                               ) : (
                                 <span
                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200"
-                                  title={`Requires HOD or ${admin.department} approver authorization`}
+                                  title={`Requires ${admin.department} approver authorization`}
                                 >
                                   <Shield className="w-3 h-3 text-slate-400" />
                                   <span>Approver Only</span>

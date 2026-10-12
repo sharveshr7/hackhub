@@ -31,6 +31,8 @@ import {
 import { useToast } from '../../components/common/Toast';
 import { Button } from '../../components/common/Button';
 import { PageHeader } from '../../components/common/PageHeader';
+import { SUPPORTED_DEPARTMENTS } from '../../constants/departments';
+import { downloadExcelWorkbook, resolveHackathonReference } from '../../utils/excelExport.mjs';
 
 export const AdminAnalyticsPage: React.FC = () => {
   const { hackathons, registrations, teams, submissions, students, certificates } = useAppStore();
@@ -39,33 +41,45 @@ export const AdminAnalyticsPage: React.FC = () => {
   const [selectedHackathon, setSelectedHackathon] = useState('ALL');
   const [selectedDept, setSelectedDept] = useState('ALL');
 
-  // Filtered registrations
+  const studentById = useMemo(() => new Map(students.map((student) => [student.uid, student])), [students]);
+  const filteredHackathons = useMemo(() => hackathons.filter((hackathon) => {
+    if (selectedHackathon !== 'ALL' && hackathon.id !== selectedHackathon) return false;
+    if (selectedDept !== 'ALL' && hackathon.department && hackathon.department !== 'ALL' && hackathon.department !== selectedDept) return false;
+    return true;
+  }), [hackathons, selectedHackathon, selectedDept]);
+
+  // Apply the same hackathon and department scope to dashboard counts and exports.
   const filteredRegistrations = useMemo(() => {
     return registrations.filter((r) => {
       if (selectedHackathon !== 'ALL' && r.hackathonId !== selectedHackathon) return false;
+      if (selectedDept !== 'ALL' && studentById.get(r.studentId)?.department !== selectedDept) return false;
       return true;
     });
-  }, [registrations, selectedHackathon]);
+  }, [registrations, selectedHackathon, selectedDept, studentById]);
 
   // Real Metrics (Section 12)
-  const hackathonsPosted = hackathons.length;
+  const hackathonsPosted = filteredHackathons.length;
   const totalRegistrations = filteredRegistrations.length;
 
   const activeParticipants = useMemo(() => {
     return new Set(filteredRegistrations.map((r) => r.studentId)).size;
   }, [filteredRegistrations]);
 
-  const activeTeams = useMemo(() => {
-    return selectedHackathon === 'ALL'
-      ? teams.length
-      : teams.filter((t) => t.hackathonId === selectedHackathon).length;
-  }, [teams, selectedHackathon]);
+  const relevantTeams = useMemo(() => teams.filter((team) => {
+    if (selectedHackathon !== 'ALL' && team.hackathonId !== selectedHackathon) return false;
+    if (selectedDept !== 'ALL' && team.department !== selectedDept && !team.members.some((member) => studentById.get(member.studentId)?.department === selectedDept)) return false;
+    return true;
+  }), [teams, selectedHackathon, selectedDept, studentById]);
+  const activeTeams = relevantTeams.length;
 
   const relevantSubmissions = useMemo(() => {
-    return selectedHackathon === 'ALL'
-      ? submissions
-      : submissions.filter((s) => s.hackathonId === selectedHackathon);
-  }, [submissions, selectedHackathon]);
+    const relevantTeamIds = new Set(relevantTeams.map((team) => team.id));
+    return submissions.filter((submission) => {
+      if (selectedHackathon !== 'ALL' && submission.hackathonId !== selectedHackathon) return false;
+      if (selectedDept !== 'ALL' && submission.department !== selectedDept && !relevantTeamIds.has(submission.teamId)) return false;
+      return true;
+    });
+  }, [submissions, selectedHackathon, selectedDept, relevantTeams]);
 
   const submittedProjects = relevantSubmissions.filter((s) => !s.isDraft || s.status === 'SUBMITTED').length;
   const submissionRate = activeTeams > 0 ? Math.round((submittedProjects / activeTeams) * 100) : 0;
@@ -75,7 +89,11 @@ export const AdminAnalyticsPage: React.FC = () => {
 
   const shortlistedCount = relevantSubmissions.filter((s) => s.status === 'SHORTLISTED').length;
   const winnersCount = relevantSubmissions.filter((s) => s.status === 'WINNER').length;
-  const certificatesCount = certificates.length;
+  const certificatesCount = certificates.filter((certificate) => {
+    if (selectedHackathon !== 'ALL' && certificate.hackathonId !== selectedHackathon) return false;
+    if (selectedDept !== 'ALL' && studentById.get(certificate.studentId)?.department !== selectedDept) return false;
+    return true;
+  }).length;
 
   // Real Department Participation
   const departmentParticipation = useMemo(() => {
@@ -147,28 +165,54 @@ export const AdminAnalyticsPage: React.FC = () => {
 
   const hasData = registrations.length > 0 || hackathons.length > 0;
 
-  const handleExportCsv = () => {
-    const headers = ['Metric', 'Value'];
-    const rows = [
-      ['Hackathons Posted', hackathonsPosted],
-      ['Total Registrations', totalRegistrations],
-      ['Active Participants', activeParticipants],
-      ['Teams Formed', activeTeams],
-      ['Submission Rate', `${submissionRate}%`],
-      ['Completion Rate', `${completionRate}%`],
-      ['Shortlisted Students', shortlistedCount],
-      ['Winners', winnersCount],
-      ['Certificates Issued', certificatesCount]
-    ];
-
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `kit-hackathon-participation-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    addToast('Participation analytics exported as CSV.', 'success');
+  const handleExportExcel = () => {
+    const rows = filteredHackathons.map((hackathon) => {
+      const reference = resolveHackathonReference(hackathon.id, hackathons);
+      const hackathonRegistrations = filteredRegistrations.filter((registration) => registration.hackathonId === hackathon.id);
+      const hackathonTeams = relevantTeams.filter((team) => team.hackathonId === hackathon.id);
+      const teamIds = new Set(hackathonTeams.map((team) => team.id));
+      const hackathonSubmissions = relevantSubmissions.filter((submission) => submission.hackathonId === hackathon.id && (selectedDept === 'ALL' || submission.department === selectedDept || teamIds.has(submission.teamId)));
+      const submitted = hackathonSubmissions.filter((submission) => !submission.isDraft || submission.status === 'SUBMITTED');
+      const evaluated = hackathonSubmissions.filter((submission) => submission.status === 'EVALUATED' || Boolean(submission.evaluationScore));
+      const hackathonCertificates = certificates.filter((certificate) => certificate.hackathonId === hackathon.id && (selectedDept === 'ALL' || studentById.get(certificate.studentId)?.department === selectedDept));
+      return {
+        hackathonName: reference.name,
+        hackathonId: reference.id,
+        hackathonReferenceStatus: reference.status,
+        registrations: hackathonRegistrations.length,
+        activeParticipants: new Set(hackathonRegistrations.map((registration) => registration.studentId)).size,
+        teamsFormed: hackathonTeams.length,
+        submittedProjects: submitted.length,
+        submissionRate: hackathonTeams.length ? `${Math.round((submitted.length / hackathonTeams.length) * 100)}%` : '0%',
+        evaluatedProjects: evaluated.length,
+        completionRate: submitted.length ? `${Math.round((evaluated.length / submitted.length) * 100)}%` : '0%',
+        shortlisted: hackathonSubmissions.filter((submission) => submission.status === 'SHORTLISTED').length,
+        winners: hackathonSubmissions.filter((submission) => submission.status === 'WINNER').length,
+        certificates: hackathonCertificates.length
+      };
+    });
+    downloadExcelWorkbook({
+      sheetName: 'Hackathon Analytics',
+      title: 'Hackathon analytics by event',
+      fileName: `hackhub-analytics-${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { header: 'Hackathon Name', key: 'hackathonName' },
+        { header: 'Hackathon ID', key: 'hackathonId' },
+        { header: 'Hackathon Reference Status', key: 'hackathonReferenceStatus' },
+        { header: 'Registrations', key: 'registrations' },
+        { header: 'Active Participants', key: 'activeParticipants' },
+        { header: 'Teams Formed', key: 'teamsFormed' },
+        { header: 'Submitted Projects', key: 'submittedProjects' },
+        { header: 'Submission Rate', key: 'submissionRate' },
+        { header: 'Evaluated Projects', key: 'evaluatedProjects' },
+        { header: 'Completion Rate', key: 'completionRate' },
+        { header: 'Shortlisted', key: 'shortlisted' },
+        { header: 'Winners', key: 'winners' },
+        { header: 'Certificates Issued', key: 'certificates' }
+      ],
+      rows
+    });
+    addToast('Participation analytics exported as Excel.', 'success');
   };
 
   return (
@@ -185,12 +229,12 @@ export const AdminAnalyticsPage: React.FC = () => {
         }
         actions={
           <Button
-            onClick={handleExportCsv}
+            onClick={handleExportExcel}
             variant="outline"
             size="sm"
             leftIcon={<Download className="w-3.5 h-3.5" />}
           >
-            Export Analytics CSV
+            Export Analytics Excel
           </Button>
         }
       />
@@ -218,10 +262,10 @@ export const AdminAnalyticsPage: React.FC = () => {
           <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-3 items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-navy-950">
               <Layers className="w-4 h-4 text-blue-600" />
-              <span>Scope Analytics by Hackathon:</span>
+              <span>Scope analytics by hackathon and department:</span>
             </div>
 
-            <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <select
                 value={selectedHackathon}
                 onChange={(e) => setSelectedHackathon(e.target.value)}
@@ -232,6 +276,17 @@ export const AdminAnalyticsPage: React.FC = () => {
                   <option key={h.id} value={h.id}>
                     {h.title}
                   </option>
+                ))}
+              </select>
+              <select
+                value={selectedDept}
+                onChange={(e) => setSelectedDept(e.target.value)}
+                className="py-1.5 px-3 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-1 focus:ring-blue-600"
+                aria-label="Filter analytics by department"
+              >
+                <option value="ALL">All authorized departments</option>
+                {SUPPORTED_DEPARTMENTS.map((department) => (
+                  <option key={department} value={department}>{department}</option>
                 ))}
               </select>
             </div>

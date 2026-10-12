@@ -1,205 +1,53 @@
 /**
- * HackHub Firestore Security Rules & Role Authorization Audit Suite
- *
- * Verifies all 13 security checkpoints specified in Phase 7:
- * 1. Unauthenticated users cannot write protected records.
- * 2. Students cannot approve admins or publish events.
- * 3. Pending admins cannot use privileged features.
- * 4. Approved faculty can manage events within their permissions.
- * 5. HOD can approve/reject applicants.
- * 6. Registration lookup cannot be publicly read or listed.
- * 7. Students cannot read other students' private records.
- * 8. Students cannot change their own role or registration number.
- * 9. Published events are visible to the intended audience.
- * 10. Draft events remain protected from public/student read.
- * 11. Team and submission ownership is enforced.
- * 12. Normal email authentication continues working.
- * 13. Registration-number authentication works with server credentials.
+ * Static source audit for HackHub's current Firestore and API authorization paths.
+ * This checks source invariants; Firebase Emulator rules execution remains separate.
  */
+import fs from 'node:fs';
 
-import fs from 'fs';
+const rules = fs.readFileSync('firestore.rules', 'utf8');
+const api = fs.readFileSync('api/student-auth.ts', 'utf8');
+const app = fs.readFileSync('src/App.tsx', 'utf8');
+const adminService = fs.readFileSync('src/services/adminService.ts', 'utf8');
+const announcementService = fs.readFileSync('src/services/announcementService.ts', 'utf8');
+const indexes = JSON.parse(fs.readFileSync('firestore.indexes.json', 'utf8'));
 
-console.log('================================================================');
-console.log('  HACKHUB — FIRESTORE SECURITY RULES & AUDIT TEST SUITE');
-console.log('  Evaluating Security Policies, Ownership & Least Privilege');
-console.log('================================================================\n');
-
-let passedTests = 0;
-let totalTests = 0;
-
-function assert(condition, message) {
-  totalTests++;
+let passed = 0;
+let total = 0;
+function check(condition, message) {
+  total += 1;
   if (condition) {
-    console.log(`  ✅ [PASS] ${message}`);
-    passedTests++;
+    passed += 1;
+    console.log(`PASS ${message}`);
   } else {
-    console.error(`  ❌ [FAIL] ${message}`);
+    console.error(`FAIL ${message}`);
   }
 }
 
-const rules = fs.readFileSync('firestore.rules', 'utf8');
+console.log('HackHub current role and Firestore source audit (static; not an Emulator test)');
+check(rules.includes('match /{document=**}') && rules.includes('allow read, write: if false;'), 'Unmatched Firestore paths default deny');
+check(!app.includes('/hod') && !fs.existsSync('src/pages/hod') && !rules.includes('function isHod()'), 'HOD routes, pages, and rule helper are removed');
+check(rules.includes("getAdminData().approvalStatus == 'APPROVED'") && rules.includes('getAdminData().isPlatformAdmin == true'), 'Approved staff and explicit platform-admin scope are enforced');
+check(rules.includes('canAccessScopedDepartment(resource.data.department, resource.data.academicYear)'), 'Private records use department and academic-year scope');
+check(rules.includes('isDeptApprover(resource.data.department)') && rules.includes("request.resource.data.approvalStatus in ['APPROVED', 'REJECTED']"), 'Department approvers can review only same-department pending staff');
+check(rules.includes('request.resource.data.approvalStatus == resource.data.approvalStatus') && rules.includes('request.resource.data.role == resource.data.role'), 'Self-profile updates cannot grant roles or approval');
+check(rules.includes('match /reg_lookups/{regNo}') && rules.includes('allow get, list, write: if false;'), 'Registration lookup documents have no direct client access');
+check(rules.includes('match /students/{studentId}') && rules.includes('allow create: if false;') && rules.includes('request.resource.data.registerNumber == resource.data.registerNumber'), 'Student profiles are server-created and identity fields are immutable');
+check(rules.includes("resource.data.status != 'DRAFT'") && rules.includes("resource.data.status in [\n        'PUBLISHED'"), 'Public hackathon reads exclude drafts');
+check(rules.includes("request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])") && rules.includes("request.resource.data.status in ['CONFIRMED', 'CANCELLED']"), 'Staff registration updates are limited to confirm or cancel');
+check(rules.includes('match /teams/{teamId}') && rules.includes('allow create: if false;'), 'Clients cannot create or change team membership directly');
+check(api.includes("req.body?.action === 'remove-team-member'") && api.includes('Only the team leader or authorized department staff can remove a member.'), 'Server team membership changes enforce leader or scoped-staff authority');
+check(rules.includes('request.resource.data.memberIds == get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.memberIds') && rules.includes("!('evaluationScore' in request.resource.data)"), 'Submissions must match the real team roster and cannot supply evaluation scores');
+check(rules.includes('match /attendance_gates/{hackathonId}') && rules.includes('allow read, write: if false;'), 'Attendance gate codes are never readable by clients');
+check(rules.includes('// Check-in records and registration attendance updates are written transactionally by the server.') && api.includes("action === 'check-in'"), 'Attendance outcomes are written through the authenticated server API');
+check(api.includes("req.body?.action === 'provision-student'") && api.includes("verifyServerRequest(authHeader, 'STAFF')"), 'Student provisioning requires an authenticated staff profile');
+check(api.includes("actor.role !== 'ADMIN' && (!actor.department || department !== actor.department)") && api.includes("SUPPORTED_STUDENT_YEARS.includes(year)"), 'Provisioning enforces department and supported academic-year boundaries');
+check(api.includes('existingEmailLookup.exists') && api.includes('existingRegLookup.exists') && api.includes('db.runTransaction'), 'Provisioning rejects duplicates and creates profile/lookup records transactionally');
+check(api.includes('createUser({ email, displayName: name, emailVerified: false, disabled: false })') && !api.includes('password: body.password'), 'Student Auth account creation does not store or accept a plaintext password');
+check(api.includes("studentData.accountStatus === 'disabled'") && api.includes('idToken: authData.idToken'), 'Student login checks active profile status before returning credentials');
+check(adminService.includes('toggleDepartmentApprover(adminId: string, isApprover: boolean)') && adminService.includes('isPlatformAdministrator(currentUser)'), 'Only platform admins can assign department approvers');
+check(rules.includes("request.resource.data.target == 'DEPT'") && announcementService.includes("target: 'DEPT' as const"), 'Faculty announcements are limited to their own department');
+check(rules.includes("allow create: if isPlatformAdmin() && request.resource.data.userId == 'ALL';") && rules.includes('match /notification_reads/{readId}'), 'Campus notifications are platform-admin-only with per-user read markers');
+check(indexes.indexes.some((index) => index.collectionGroup === 'announcements' && index.fields.some((field) => field.fieldPath === 'target') && index.fields.some((field) => field.fieldPath === 'department')), 'Department announcement query index is configured');
 
-// 1. Unauthenticated users cannot write protected records
-console.log('[Check 1: Unauthenticated Write Protection]');
-assert(
-  rules.includes('allow write: if isAdmin();') && rules.includes('allow read, write: if false;'),
-  'Protected collections default deny writes to non-admin / unauthenticated users'
-);
-
-// 2. Students cannot approve admins or publish events
-console.log('\n[Check 2: Student Boundary Protection]');
-assert(
-  rules.includes('match /admins/{adminId}') &&
-  rules.includes('isHod()') &&
-  !rules.includes('role == \'STUDENT\''),
-  'Students cannot approve admins or elevate administrative accounts'
-);
-assert(
-  rules.includes('match /hackathons/{hackathonId}') &&
-  rules.includes('allow create: if isAdmin() &&') &&
-  rules.includes('allow update: if isHod() || ('),
-  'Students cannot publish or update hackathon documents'
-);
-
-// 3. Pending admins cannot use privileged features
-console.log('\n[Check 3: Pending Admin Access Control]');
-assert(
-  rules.includes('data.approvalStatus == \'APPROVED\''),
-  'isAdmin() requires approvalStatus == APPROVED'
-);
-assert(
-  rules.includes('request.resource.data.approvalStatus == \'PENDING\''),
-  'New faculty self-registrations are constrained to approvalStatus == PENDING'
-);
-
-// 4. Approved faculty can manage events within permissions
-console.log('\n[Check 4: Approved Faculty Event Management]');
-assert(
-  rules.includes('match /hackathons/{hackathonId}') &&
-  rules.includes('allow create: if isAdmin()') &&
-  rules.includes('allow update: if isHod() || (') &&
-  rules.includes('allow delete: if isHod() || ('),
-  'Approved faculty and HOD are authorized to create, update, and delete events within department scope'
-);
-
-// 5. HOD can approve/reject applicants
-console.log('\n[Check 5: HOD Approval Authority]');
-assert(
-  rules.includes('isHod() && !(isOwner(adminId) && resource.data.approvalStatus != \'APPROVED\' && request.resource.data.approvalStatus == \'APPROVED\')'),
-  'Only HOD can update admin approvalStatus while preventing self-approval'
-);
-assert(
-  rules.includes('allow delete: if isHod() && !isOwner(adminId);'),
-  'Only HOD can delete admins, with guardrail preventing self-deletion of last HOD'
-);
-
-// 6. Registration lookup cannot be publicly read or listed
-console.log('\n[Check 6: Registration Lookup Protection]');
-assert(
-  rules.includes('match /reg_lookups/{regNo}') &&
-  rules.includes('allow get: if isAdmin();') &&
-  rules.includes('allow list: if false;'),
-  'reg_lookups forbids public reads and directory listing entirely'
-);
-
-// 7. Students cannot read other students\' private records
-console.log('\n[Check 7: Private Record Confidentiality]');
-assert(
-  rules.includes('match /students/{studentId}') &&
-  rules.includes('allow get: if isOwner(studentId) || (') &&
-  rules.includes('allow list: if isHod() || ('),
-  'Students cannot list student directory; can only get their own profile'
-);
-assert(
-  rules.includes('match /registrations/{registrationId}') &&
-  rules.includes('resource.data.studentId == request.auth.uid') &&
-  rules.includes('isAdmin()'),
-  'Students cannot read other students\' registrations'
-);
-
-// 8. Students cannot change their own role or registration number
-console.log('\n[Check 8: Student Immutable Fields]');
-assert(
-  rules.includes('(!(\'role\' in request.resource.data) || request.resource.data.role == resource.data.role)') &&
-  rules.includes('(!(\'registerNumber\' in request.resource.data) || request.resource.data.registerNumber == resource.data.registerNumber)'),
-  'Students cannot alter role, registerNumber, or accountStatus on profile updates'
-);
-
-// 9. Published events are visible to intended audience
-console.log('\n[Check 9: Published Events Visibility]');
-assert(
-  rules.includes('match /hackathons/{hackathonId}') &&
-  rules.includes('resource.data.status in [') &&
-  rules.includes('\'PUBLISHED\''),
-  'Published events are readable by public and authenticated students'
-);
-
-// 10. Draft events remain protected
-console.log('\n[Check 10: Draft Events Protection]');
-assert(
-  rules.includes('(resource.data.status != \'DRAFT\' && resource.data.status != \'draft\')') &&
-  rules.includes('isAdmin()'),
-  'Draft hackathons are restricted to admin access only'
-);
-
-// 11. Team and submission ownership is enforced
-console.log('\n[Check 11: Ownership Enforcement]');
-assert(
-  rules.includes('match /teams/{teamId}') &&
-  rules.includes('request.resource.data.leaderId == request.auth.uid'),
-  'Team creation strictly verifies that request.auth.uid is team leader'
-);
-assert(
-  rules.includes('match /submissions/{submissionId}') &&
-  rules.includes('(!(\'evaluationScore\' in request.resource.data) || request.resource.data.evaluationScore == resource.data.evaluationScore)') &&
-  rules.includes('(!(\'rank\' in request.resource.data) || request.resource.data.rank == resource.data.rank)'),
-  'Submissions strictly prevent students from tampering with scores or ranks'
-);
-
-// 12. Normal email authentication continues working
-console.log('\n[Check 12: Email Authentication Flow]');
-const authServiceCode = fs.readFileSync('src/services/authService.ts', 'utf8');
-assert(
-  authServiceCode.includes('signInWithEmailAndPassword(auth, targetEmail, pass)'),
-  'Normal institutional email/password login is directly supported via Firebase Auth'
-);
-
-// 13. Registration-number authentication works with server credentials
-console.log('\n[Check 13: Server Registration Number Authentication]');
-const apiCode = fs.readFileSync('api/student-auth.ts', 'utf8');
-assert(
-  apiCode.includes('adminInstances.adminDb.collection(\'reg_lookups\').doc(cleanRegNo).get()'),
-  'Registration number resolution uses trusted Firebase Admin SDK server-side'
-);
-assert(
-  apiCode.includes('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword'),
-  'Registration number authentication verifies credentials via Identity Toolkit without storing passwords'
-);
-
-// 14. Team documents restricted to team members and administrators
-console.log('\n[Check 14: Team Document Confidentiality]');
-assert(
-  rules.includes('match /teams/{teamId}') &&
-  rules.includes('resource.data.leaderId == request.auth.uid ||\n          (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)') &&
-  !rules.includes('match /teams/{teamId} {\n      allow read: if isAuthenticated();'),
-  'Team document read access strictly limited to team leader, members, or administrators'
-);
-
-// 15. Notification creation restricted to prevent forged notifications
-console.log('\n[Check 15: Notification Forgery Prevention]');
-assert(
-  rules.includes('match /notifications/{notificationId}') &&
-  rules.includes('allow create: if isAdmin() || (\n        isAuthenticated() && request.resource.data.userId == request.auth.uid\n      );') &&
-  !rules.includes('match /notifications/{notificationId} {\n      allow read, update, delete: if isAuthenticated() && (\n        resource.data.userId == request.auth.uid ||\n        resource.data.userId == \'ALL\' ||\n        isAdmin()\n      );\n      allow create: if isAuthenticated();'),
-  'Notification creation restricted to self-notification for students; only admins can notify other users or broadcast'
-);
-
-console.log('\n================================================================');
-console.log(`  RULES AUDIT SUMMARY: ${passedTests} / ${totalTests} CHECKS PASSED`);
-console.log('================================================================\n');
-
-if (passedTests === totalTests) {
-  process.exit(0);
-} else {
-  process.exit(1);
-}
+console.log(`\nRESULT ${passed}/${total} source checks passed.`);
+if (passed !== total) process.exitCode = 1;

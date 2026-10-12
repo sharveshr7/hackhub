@@ -21,10 +21,13 @@ import {
 } from 'lucide-react';
 import { Announcement } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
+import { isPlatformAdministrator } from '../../utils/access';
 
 export const AdminAnnouncementsPage: React.FC = () => {
   const announcements = useAppStore((state) => state.announcements);
   const hackathons = useAppStore((state) => state.hackathons);
+  const currentUser = useAppStore((state) => state.currentUser);
+  const platformAdministrator = isPlatformAdministrator(currentUser);
   const { showToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,7 +42,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
   const [message, setMessage] = useState('');
   const [selectedHackathonId, setSelectedHackathonId] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'IMPORTANT' | 'CRITICAL'>('NORMAL');
-  const [target, setTarget] = useState<'ALL' | 'REGISTERED' | 'SPECIFIC_HACKATHON' | 'DEPT'>('ALL');
+  const [target, setTarget] = useState<'ALL' | 'REGISTERED' | 'SPECIFIC_HACKATHON' | 'DEPT'>(platformAdministrator ? 'ALL' : 'DEPT');
   const [isLoading, setIsLoading] = useState(false);
 
   // Filtered list
@@ -80,7 +83,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
         hackathonId: selectedHackathonId || undefined,
         hackathonTitle: hackathon?.title,
         priority,
-        target,
+        target: platformAdministrator ? target : 'DEPT',
         status: 'ACTIVE'
       });
 
@@ -146,7 +149,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
       <PageHeader
         category="CAMPUS COMMUNICATIONS"
         title="Institutional Announcements"
-        description="Broadcast official campus advisories, venue logistics, Wi-Fi credentials, and schedule notifications to hackathon participants."
+        description="Publish department notices for your students or campus bulletins as a platform administrator."
         count={announcements.length}
         countLabel="Total Bulletins"
         actions={
@@ -268,6 +271,8 @@ export const AdminAnnouncementsPage: React.FC = () => {
                       <span className="text-[11px] font-medium text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
                         {ann.target === 'ALL'
                           ? 'All Students'
+                          : ann.target === 'DEPT'
+                          ? `Department: ${ann.department || 'Unassigned'}`
                           : ann.target === 'REGISTERED'
                           ? 'Registered Only'
                           : ann.target === 'SPECIFIC_HACKATHON'
@@ -300,13 +305,15 @@ export const AdminAnnouncementsPage: React.FC = () => {
                     </td>
 
                     <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => setDeleteTargetId(ann.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                        title="Delete announcement"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {(platformAdministrator || ann.department === currentUser?.adminData?.department) && (
+                        <button
+                          onClick={() => setDeleteTargetId(ann.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="Delete announcement"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -341,18 +348,20 @@ export const AdminAnnouncementsPage: React.FC = () => {
 
                 <div className="flex items-center justify-between pt-2 border-t border-slate-200/60 text-[10px] text-slate-500">
                   <span className="bg-slate-200/70 px-2 py-0.5 rounded font-medium text-slate-700">
-                    {ann.target === 'ALL' ? 'All Students' : ann.target === 'REGISTERED' ? 'Registered' : 'Specific'}
+                    {ann.target === 'ALL' ? 'All Students' : ann.target === 'DEPT' ? `Dept: ${ann.department || 'Unassigned'}` : ann.target === 'REGISTERED' ? 'Registered' : 'Specific'}
                   </span>
                   <div className="flex items-center gap-2">
                     <span>
                       {new Date(ann.publishedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                     </span>
-                    <button
-                      onClick={() => setDeleteTargetId(ann.id)}
-                      className="text-rose-600 hover:text-rose-800 font-semibold p-1"
-                    >
-                      Delete
-                    </button>
+                    {(platformAdministrator || ann.department === currentUser?.adminData?.department) && (
+                      <button
+                        onClick={() => setDeleteTargetId(ann.id)}
+                        className="text-rose-600 hover:text-rose-800 font-semibold p-1"
+                      >
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -365,7 +374,7 @@ export const AdminAnnouncementsPage: React.FC = () => {
       <Modal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        title="Broadcast Institutional Announcement"
+        title={platformAdministrator ? 'Publish Campus Announcement' : 'Publish Department Announcement'}
         maxWidth="md"
       >
         <form onSubmit={handleCreateAnnouncement} className="space-y-4 py-2 text-xs">
@@ -412,9 +421,11 @@ export const AdminAnnouncementsPage: React.FC = () => {
                 onChange={(e) => setTarget(e.target.value as any)}
                 className="w-full rounded-lg border border-slate-300 text-xs py-2 px-3 bg-white text-slate-800 focus:outline-none focus:border-navy-900"
               >
-                <option value="ALL">All Students</option>
-                <option value="REGISTERED">Registered Students Only</option>
-                <option value="SPECIFIC_HACKATHON">Specific Hackathon</option>
+                {platformAdministrator ? (
+                  <option value="ALL">All Students</option>
+                ) : (
+                  <option value="DEPT">Students in {currentUser?.adminData?.department || 'your department'}</option>
+                )}
               </select>
             </div>
           </div>

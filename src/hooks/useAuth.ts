@@ -23,15 +23,7 @@ export function useAuth() {
 
       try {
         // Get custom token claims if available
-        let tokenClaims: Record<string, any> = {};
-        try {
-          const idTokenResult = await fbUser.getIdTokenResult(true);
-          tokenClaims = idTokenResult.claims || {};
-        } catch (tokenErr) {
-          // ignore
-        }
-
-        // 1. Check if admin or HOD
+        // 1. Check if admin
         const adminDocRef = doc(db, 'admins', fbUser.uid);
         const adminSnap = await getDoc(adminDocRef);
 
@@ -39,31 +31,22 @@ export function useAuth() {
           const adminData = adminSnap.data() as Admin;
           const roleUpper = (adminData.role || '').toUpperCase();
 
-          const isHod =
-            tokenClaims.hod === true ||
-            tokenClaims.role === 'HOD' ||
-            adminData.isHod === true ||
-            roleUpper === 'HOD';
-
           const isApproved =
             adminData.approvalStatus === 'APPROVED' ||
-            isHod ||
-            (!adminData.approvalStatus && (roleUpper === 'ADMIN' || isHod));
+            (!adminData.approvalStatus && ['ADMIN', 'FACULTY'].includes(roleUpper));
 
           const isActive =
             adminData.isActive !== false &&
             (adminData as any).accountStatus !== 'deactivated';
 
           if (isApproved && isActive) {
-            const effectiveRole: UserRole = isHod ? 'HOD' : 'ADMIN';
             const currentAdmin: CurrentUser = {
               uid: fbUser.uid,
               email: fbUser.email || '',
-              role: effectiveRole,
+              role: adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY',
               adminData: {
                 ...adminData,
-                role: effectiveRole,
-                isHod
+                role: adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY'
               }
             };
             setUser(currentAdmin);
@@ -87,23 +70,21 @@ export function useAuth() {
 
         if (studentSnap.exists()) {
           studentData = studentSnap.data() as Student;
-        } else if (fbUser.email) {
-          const emailQuery = query(
-            collection(db, 'students'),
-            where('email', '==', fbUser.email.toLowerCase())
-          );
-          const emailSnap = await getDocs(emailQuery);
-          if (!emailSnap.empty) {
-            studentData = emailSnap.docs[0].data() as Student;
-          }
         }
 
         if (studentData) {
+          const profileRole = String((studentData as any).role || '').toUpperCase();
+          const profileEmail = String((studentData as any).email || '').trim().toLowerCase();
+          const authenticatedEmail = String(fbUser.email || '').trim().toLowerCase();
+          const profileMatchesIdentity =
+            (!(studentData as any).uid || (studentData as any).uid === fbUser.uid) &&
+            !!profileEmail && profileEmail === authenticatedEmail;
           const isActive =
             studentData.accountStatus !== 'disabled' &&
+            (studentData as any).accountStatus !== 'deactivated' &&
             (studentData as any).isActive !== false;
 
-          if (isActive) {
+          if (profileRole === 'STUDENT' && profileMatchesIdentity && isActive) {
             const currentStudent: CurrentUser = {
               uid: fbUser.uid,
               email: fbUser.email || '',
@@ -115,7 +96,7 @@ export function useAuth() {
             setLoading(false);
             return;
           } else {
-            console.warn(`[useAuth] Student account ${fbUser.uid} is deactivated.`);
+            console.warn(`[useAuth] Student account ${fbUser.uid} is deactivated, mismatched, or has an inactive profile.`);
             setUser(null);
             setCurrentUser(null);
             setLoading(false);

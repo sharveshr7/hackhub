@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import {
   Hackathon,
   Student,
@@ -65,7 +64,6 @@ interface AppStoreState {
   registerStudent: (hackathonId: string, studentId: string) => { success: boolean; registration?: Registration; message: string };
   updateRegistration: (id: string, updates: Partial<Registration>) => void;
   updateRegistrationStatus: (registrationId: string, status: RegistrationStatus) => void;
-  markAttendance: (hackathonId: string, studentId: string, code: string) => { success: boolean; message: string };
 
   // Team Actions
   createTeam: (hackathonId: string, name: string, leader: Student) => { success: boolean; team?: Team; message: string };
@@ -92,7 +90,6 @@ interface AppStoreState {
 }
 
 export const useAppStore = create<AppStoreState>()(
-  persist(
     (set, get) => ({
       // Real authenticated user state (starts unauthenticated)
       currentUser: null,
@@ -213,32 +210,6 @@ export const useAppStore = create<AppStoreState>()(
             r.id === registrationId ? { ...r, status, updatedAt: new Date().toISOString() } : r
           )
         }));
-      },
-
-      markAttendance: (hackathonId, studentId, code) => {
-        const state = get();
-        const hackathon = state.hackathons.find((h) => h.id === hackathonId);
-        if (!hackathon) {
-          return { success: false, message: 'Hackathon not found.' };
-        }
-
-        if (!hackathon.attendanceCode || !hackathon.attendanceCode.trim()) {
-          return { success: false, message: 'Check-in passcode has not been configured for this event.' };
-        }
-
-        if (code.trim().toUpperCase() !== hackathon.attendanceCode.trim().toUpperCase()) {
-          return { success: false, message: 'Invalid attendance passcode.' };
-        }
-
-        set((s) => ({
-          registrations: s.registrations.map((r) =>
-            r.hackathonId === hackathonId && r.studentId === studentId
-              ? { ...r, attendanceStatus: 'PRESENT', status: 'ATTENDED' }
-              : r
-          )
-        }));
-
-        return { success: true, message: 'Attendance confirmed.' };
       },
 
       // Team Operations
@@ -508,9 +479,5 @@ export const useAppStore = create<AppStoreState>()(
           };
         });
       }
-    }),
-    {
-      name: 'cit-college-hackathon-portal-production-v1'
-    }
-  )
+    })
 );

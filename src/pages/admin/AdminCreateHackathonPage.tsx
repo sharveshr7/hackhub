@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { hackathonService } from '../../services/hackathonService';
 import { useAppStore } from '../../lib/store';
+import { isPlatformAdministrator } from '../../utils/access';
 import { Input, Textarea } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { useToast } from '../../components/common/Toast';
@@ -22,15 +23,15 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import { EventOrganizerType, EventCategory, HackathonStatus } from '../../types';
-import { SUPPORTED_DEPARTMENTS } from '../../constants/departments';
+import { SUPPORTED_DEPARTMENTS, isSupportedDepartment } from '../../constants/departments';
 
 export const AdminCreateHackathonPage: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const currentUser = useAppStore((state) => state.currentUser);
 
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const facultyDept = currentUser?.adminData?.department;
+  const isPlatformAdmin = isPlatformAdministrator(currentUser);
+  const facultyDept = isPlatformAdmin ? undefined : currentUser?.adminData?.department;
 
   // 5 Required Fields (HireToday Style)
   const [title, setTitle] = useState('');
@@ -38,7 +39,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
   const [category, setCategory] = useState<EventCategory>('HACKATHON');
   const [officialUrl, setOfficialUrl] = useState('');
   const [shortDescription, setShortDescription] = useState('');
-  const [department, setDepartment] = useState<string>(isHod ? 'ALL' : (facultyDept || SUPPORTED_DEPARTMENTS[0]));
+  const [department, setDepartment] = useState<string>(facultyDept || '');
 
   // Collapsed "Additional Details" section state
   const [isAdditionalDetailsOpen, setIsAdditionalDetailsOpen] = useState(false);
@@ -105,6 +106,10 @@ export const AdminCreateHackathonPage: React.FC = () => {
       setFormError('Please write a short description summary of the event.');
       return;
     }
+    if (!isSupportedDepartment(department)) {
+      setFormError('Select Biotechnology or Biomedical Engineering.');
+      return;
+    }
     const trimmedDesc = shortDescription.trim();
     if (trimmedDesc.length > 1500) {
       setFormError('Short description must be 1500 characters or fewer.');
@@ -148,7 +153,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
         category,
         officialUrl: officialUrl.trim(),
         externalRegistrationUrl: officialUrl.trim(),
-        department: isHod ? department : (facultyDept || SUPPORTED_DEPARTMENTS[0]),
+        department,
         shortDescription: shortDescription.trim(),
         description: shortDescription.trim(),
         isExternal: !isOurCollege,
@@ -181,7 +186,6 @@ export const AdminCreateHackathonPage: React.FC = () => {
         problemStatements: [],
         evaluationCriteria: [],
         faq: [],
-        attendanceOpen: false
       });
 
       showToast(
@@ -320,23 +324,20 @@ export const AdminCreateHackathonPage: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Department Scope *
               </label>
-              {isHod ? (
+              {isPlatformAdmin ? (
                 <select
                   value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full py-2 px-3 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium"
+                  onChange={(event) => setDepartment(event.target.value)}
+                  required
+                  className="w-full py-2.5 px-3 rounded-xl border border-slate-200 bg-white text-xs text-slate-700 font-medium"
                 >
-                  <option value="ALL">Institution-Wide (All Departments)</option>
-                  {SUPPORTED_DEPARTMENTS.map((dept) => (
-                    <option key={dept} value={dept}>
-                      {dept}
-                    </option>
-                  ))}
+                  <option value="" disabled>Select department</option>
+                  {SUPPORTED_DEPARTMENTS.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               ) : (
                 <div className="py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-700 font-medium flex items-center justify-between">
-                  <span>{facultyDept || 'Biotechnology'} Department</span>
-                  <span className="text-[10px] text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded font-bold">Faculty Department Scope</span>
+                  <span>{facultyDept || 'Department not assigned'}</span>
+                  <span className="text-[10px] text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded font-bold">Authorized Department Scope</span>
                 </div>
               )}
             </div>

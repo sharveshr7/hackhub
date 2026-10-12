@@ -58,7 +58,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  const [attendanceCode, setAttendanceCode] = useState(hackathon?.attendanceCode || '');
+  const [attendanceGate, setAttendanceGate] = useState({ attendanceOpen: false, attendanceCode: '' });
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -105,8 +105,17 @@ export const AdminHackathonDetailPage: React.FC = () => {
       setEditPrizeInfo(hackathon.prizePool || (hackathon.prizes?.[0]?.reward) || '');
       setEditBannerUrl(hackathon.bannerUrl || '');
       setEditStatus(hackathon.status || 'REGISTRATION_OPEN');
-      setAttendanceCode(hackathon.attendanceCode || '');
     }
+  }, [hackathon?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (hackathon) {
+      hackathonService.getAttendanceGate(hackathon.id)
+        .then((gate) => { if (!cancelled) setAttendanceGate(gate); })
+        .catch(() => { if (!cancelled) setAttendanceGate({ attendanceOpen: false, attendanceCode: '' }); });
+    }
+    return () => { cancelled = true; };
   }, [hackathon?.id]);
 
   if (!hackathon) {
@@ -142,7 +151,8 @@ export const AdminHackathonDetailPage: React.FC = () => {
   const handleToggleAttendance = async (isOpen: boolean) => {
     setIsLoading(true);
     try {
-      await hackathonService.toggleAttendance(hackathon.id, isOpen, attendanceCode);
+      const gate = await hackathonService.toggleAttendance(hackathon.id, isOpen);
+      setAttendanceGate(gate);
       addToast(`Attendance check-in is now ${isOpen ? 'OPEN' : 'CLOSED'}.`, 'success');
       setIsAttendanceModalOpen(false);
     } catch (err: any) {
@@ -274,7 +284,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
               size="sm"
               leftIcon={<QrCode className="w-3.5 h-3.5" />}
             >
-              Check-in Code {hackathon.attendanceCode ? `(${hackathon.attendanceCode})` : '(Not Set)'}
+              Check-in Code {attendanceGate.attendanceCode ? `(${attendanceGate.attendanceCode})` : '(Not Set)'}
             </Button>
           </div>
         </div>
@@ -511,11 +521,11 @@ export const AdminHackathonDetailPage: React.FC = () => {
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-500">Check-in Status:</span>
-                <span className="font-bold text-emerald-700">{hackathon.attendanceOpen ? 'OPEN' : 'CLOSED'}</span>
+                <span className="font-bold text-emerald-700">{attendanceGate.attendanceOpen ? 'OPEN' : 'CLOSED'}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500">Active Check-in Code:</span>
-                <span className="font-mono font-bold text-navy-950">{hackathon.attendanceCode || 'Not Set'}</span>
+                <span className="font-mono font-bold text-navy-950">{attendanceGate.attendanceCode || 'Not Set'}</span>
               </div>
             </div>
 
@@ -826,15 +836,11 @@ export const AdminHackathonDetailPage: React.FC = () => {
           maxWidth="md"
         >
           <div className="space-y-4 py-2 text-xs">
-            <p className="text-slate-600">
-              Update the verification check-in code announced for {hackathon.title}.
-            </p>
-
-            <Input
-              label="Check-in Security Code"
-              value={attendanceCode}
-              onChange={(e) => setAttendanceCode(e.target.value.toUpperCase())}
-            />
+            <p className="text-slate-600">Open or close the private venue check-in gate for {hackathon.title}.</p>
+            <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <span className="text-slate-500">Current code: </span>
+              <span className="font-mono font-bold text-navy-950">{attendanceGate.attendanceCode || 'No active code'}</span>
+            </div>
 
             <div className="flex justify-between items-center pt-3 border-t border-slate-100">
               <Button

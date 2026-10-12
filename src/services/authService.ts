@@ -64,14 +64,23 @@ function isCredentialMismatch(err: any): boolean {
   return false;
 }
 
+function normalizeRegistrationNumber(value: unknown): string {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function hasActiveStudentStatus(student: Student): boolean {
+  const data = student as any;
+  return data.accountStatus === 'active' || data.isActive === true;
+}
+
 export const authService = {
   /**
    * Register a new student in Firebase Auth and create Firestore profile in students/{uid}
    */
   async registerStudent(
-    email: string,
-    pass: string,
-    studentInfo: {
+    _email: string,
+    _pass: string,
+    _studentInfo: {
       name: string;
       registerNumber: string;
       phone?: string;
@@ -79,78 +88,7 @@ export const authService = {
       year?: string;
     }
   ): Promise<CurrentUser> {
-    const cleanRegNo = studentInfo.registerNumber.trim().toUpperCase();
-    const cleanEmail = email.trim().toLowerCase();
-    const cleanDept = studentInfo.department.trim();
-
-    if (!isSupportedDepartment(cleanDept)) {
-      throw new Error(`Invalid department "${cleanDept}". HackHub strictly supports Biotechnology and Biomedical Engineering.`);
-    }
-
-    // 1. Create Firebase Auth user first (establishes authentication for Firestore operations)
-    let userCredential;
-    try {
-      userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-    } catch (authErr: any) {
-      if (authErr.code === 'auth/email-already-in-use') {
-        throw new Error('This email address is already registered. Please sign in instead.');
-      }
-      throw authErr;
-    }
-
-    const uid = userCredential.user.uid;
-
-    // 2. Verify duplicate register number with authenticated session
-    try {
-      const regQuery = query(
-        collection(db, 'students'),
-        where('registerNumber', '==', cleanRegNo)
-      );
-      const regSnap = await getDocs(regQuery);
-      if (!regSnap.empty) {
-        await userCredential.user.delete();
-        throw new Error('This register number is already registered.');
-      }
-    } catch (regErr: any) {
-      try {
-        await userCredential.user.delete();
-      } catch (delErr: any) {
-        // ignore delete error
-      }
-      throw regErr;
-    }
-
-    const studentRecord: Student = {
-      uid,
-      name: studentInfo.name.trim(),
-      registerNumber: studentInfo.registerNumber.trim().toUpperCase(),
-      email: email.trim().toLowerCase(),
-      phone: studentInfo.phone?.trim() || '',
-      department: studentInfo.department,
-      year: studentInfo.year || '3rd Year',
-      role: 'STUDENT',
-      accountStatus: 'active',
-      bio: 'Enthusiastic engineering student building production-ready prototypes.',
-      skills: ['TypeScript', 'React', 'Problem Solving']
-    };
-
-    // Create the student's Firestore profile at students/{uid}
-    await setDoc(doc(db, 'students', uid), {
-      ...studentRecord,
-      role: 'student',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-
-    const currentUser: CurrentUser = {
-      uid,
-      email: email.trim().toLowerCase(),
-      role: 'STUDENT',
-      studentData: studentRecord
-    };
-
-    useAppStore.getState().setCurrentUser(currentUser);
-    return currentUser;
+    throw new Error('Student accounts are provisioned by an authorized administrator. Public student registration is closed.');
   },
 
   /**
@@ -162,6 +100,7 @@ export const authService = {
 
   async loginStudentWithIdentifier(identifier: string, pass: string): Promise<CurrentUser> {
     const rawInput = identifier.trim();
+    const isEmailLogin = rawInput.includes('@');
     if (!rawInput) {
       throw new Error('Please enter your registration number or registered email address.');
     }
@@ -170,11 +109,15 @@ export const authService = {
     }
 
     let targetEmail: string = '';
+    let resolvedUid: string | null = null;
 
-    if (rawInput.includes('@')) {
+    if (isEmailLogin) {
       targetEmail = rawInput.toLowerCase();
     } else {
-      const cleanRegNo = rawInput.toUpperCase().replace(/\s+/g, '');
+      const cleanRegNo = normalizeRegistrationNumber(rawInput);
+      if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(cleanRegNo)) {
+        throw new Error('Enter a valid college registration number.');
+      }
       // Architecture Note: Direct client read of reg_lookups collection is forbidden by firestore.rules.
       // Registration lookup resolution is routed through trusted backend endpoint /api/student-auth.
       let resolvedViaApi = false;
@@ -193,8 +136,9 @@ export const authService = {
         if (res.status === 503) {
           throw new Error(res.data?.error || 'Registration number login requires server configuration. Please sign in with your college email.');
         }
-        if (res.status === 200 && res.data?.email) {
-          targetEmail = res.data.email;
+        if (res.status === 200 && res.data?.email && res.data?.localId) {
+          targetEmail = String(res.data.email).trim().toLowerCase();
+          resolvedUid = String(res.data.localId);
           resolvedViaApi = true;
         } else {
           throw new Error(res.data?.error || 'Authentication service temporarily unavailable.');
@@ -228,8 +172,9 @@ export const authService = {
 
           if (apiRes.ok) {
             const data = await apiRes.json().catch(() => ({}));
-            if (data?.email) {
-              targetEmail = data.email;
+            if (data?.email && data?.localId) {
+              targetEmail = String(data.email).trim().toLowerCase();
+              resolvedUid = String(data.localId);
               resolvedViaApi = true;
             }
           } else {
@@ -282,22 +227,21 @@ export const authService = {
 
     const uid = userCredential.user.uid;
 
+    if (
+      (resolvedUid && uid !== resolvedUid) ||
+      (userCredential.user.email || '').trim().toLowerCase() !== targetEmail
+    ) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error(isEmailLogin ? 'Invalid email or password.' : 'Invalid registration number or password.');
+    }
+
     // Retrieve verified student profile from Firestore
-    let studentSnap = await getDoc(doc(db, 'students', uid));
+    const studentSnap = await getDoc(doc(db, 'students', uid));
     let studentData: Student | null = null;
 
     if (studentSnap.exists()) {
       studentData = studentSnap.data() as Student;
-    } else {
-      // Fallback: Query by verified email in students collection in case of legacy UID mapping
-      const resolvedEmail = (userCredential.user.email || targetEmail || '').trim().toLowerCase();
-      if (resolvedEmail) {
-        const emailQuery = query(collection(db, 'students'), where('email', '==', resolvedEmail));
-        const emailSnap = await getDocs(emailQuery);
-        if (!emailSnap.empty) {
-          studentData = emailSnap.docs[0].data() as Student;
-        }
-      }
     }
 
     if (!studentData) {
@@ -308,8 +252,31 @@ export const authService = {
       );
     }
 
+    if (studentData.uid && studentData.uid !== uid) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('Access denied: student profile does not match the authenticated account.');
+    }
+
+    if ((studentData.email || '').trim().toLowerCase() !== targetEmail) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error(isEmailLogin ? 'Invalid email or password.' : 'Invalid registration number or password.');
+    }
+
+    if (!isEmailLogin && normalizeRegistrationNumber(
+      studentData.registrationNumberNormalized || studentData.registerNumber
+    ) !== normalizeRegistrationNumber(rawInput)) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('Invalid registration number or password.');
+    }
+
     // Verify account status
-    if (studentData.accountStatus === 'disabled' || (studentData as any).isActive === false) {
+    const inactive = isEmailLogin
+      ? studentData.accountStatus === 'disabled' || (studentData as any).accountStatus === 'deactivated' || (studentData as any).isActive === false
+      : !hasActiveStudentStatus(studentData);
+    if (inactive) {
       await signOut(auth);
       useAppStore.getState().logout();
       throw new Error('This student account has been deactivated. Please contact college administration.');
@@ -356,17 +323,15 @@ export const authService = {
       throw new Error(`Invalid department "${cleanDept}". HackHub strictly supports Biotechnology and Biomedical Engineering.`);
     }
 
-    let validSpec = adminInfo.researchSpecialization?.trim() || '';
+    const validSpec = adminInfo.researchSpecialization?.trim() || '';
+    if (!isValidSpecialization(cleanDept, validSpec)) {
+      throw new Error(`Select a valid research specialization for ${cleanDept}.`);
+    }
     let validCustom = '';
-    if (validSpec) {
-      if (!isValidSpecialization(cleanDept, validSpec)) {
-        throw new Error(`Invalid research specialization "${validSpec}" for department ${cleanDept}.`);
-      }
-      if (validSpec === 'Other') {
-        validCustom = sanitizeCustomSpecialization(adminInfo.customSpecialization);
-        if (validCustom.length < 3) {
-          throw new Error('Please specify a valid custom research specialization (at least 3 characters).');
-        }
+    if (validSpec === 'Other') {
+      validCustom = sanitizeCustomSpecialization(adminInfo.customSpecialization);
+      if (validCustom.length < 3) {
+        throw new Error('Please specify a valid custom research specialization (at least 3 characters).');
       }
     }
 
@@ -440,7 +405,7 @@ export const authService = {
       designation: adminInfo.designation.trim(),
       facultyId: adminInfo.facultyId.trim(),
       institution: adminInfo.institution?.trim() || 'KalaignarKarunanidhi Institute Of Technology',
-      role: 'ADMIN',
+      role: 'FACULTY',
       approvalStatus: 'PENDING',
       ...(validSpec ? { researchSpecialization: validSpec } : {}),
       ...(validCustom ? { customSpecialization: validCustom } : {})
@@ -451,7 +416,7 @@ export const authService = {
       console.log('[AuthService] Writing pending faculty profile to admins/' + uid);
       await setDoc(doc(db, 'admins', uid), {
         ...adminRecord,
-        role: 'admin',
+        role: 'FACULTY',
         approvalStatus: 'PENDING',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -507,21 +472,7 @@ export const authService = {
       const adminData = adminSnap.data() as Admin;
       const roleUpper = (adminData.role || '').toUpperCase();
 
-      // Check for token custom claims or HOD designation
-      let tokenClaims: Record<string, any> = {};
-      try {
-        const idTokenRes = await userCredential.user.getIdTokenResult(true);
-        tokenClaims = idTokenRes.claims || {};
-      } catch (tokenErr) {
-        // ignore
-      }
-
-      const isHod =
-        tokenClaims.hod === true ||
-        tokenClaims.role === 'HOD' ||
-        adminData.isHod === true ||
-        roleUpper === 'HOD';
-
+      // Validate account status and approval
       if (adminData.approvalStatus === 'PENDING') {
         await signOut(auth);
         useAppStore.getState().logout();
@@ -541,21 +492,20 @@ export const authService = {
       if (adminData.isActive === false || (adminData as any).accountStatus === 'deactivated') {
         await signOut(auth);
         useAppStore.getState().logout();
-        throw new Error('This administrator account has been deactivated. Please contact the Head of Department.');
+        throw new Error('This administrator account has been deactivated. Please contact the department administrator.');
       }
 
       const isApproved =
         adminData.approvalStatus === 'APPROVED' ||
-        isHod ||
-        (!adminData.approvalStatus && roleUpper === 'ADMIN');
+        (!adminData.approvalStatus && ['ADMIN', 'FACULTY'].includes(roleUpper));
 
-      if ((roleUpper !== 'ADMIN' && !isHod) || !isApproved) {
+      if (!isApproved) {
         await signOut(auth);
         useAppStore.getState().logout();
         throw new Error('This account does not have administrator access.');
       }
 
-      const effectiveRole: UserRole = isHod ? 'HOD' : 'ADMIN';
+      const effectiveRole: UserRole = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
 
       const currentUser: CurrentUser = {
         uid,
@@ -563,8 +513,7 @@ export const authService = {
         role: effectiveRole,
         adminData: {
           ...adminData,
-          role: effectiveRole,
-          isHod
+          role: effectiveRole
         }
       };
 
@@ -637,16 +586,10 @@ export const authService = {
     const email = (userCredential.user.email || '').trim().toLowerCase();
 
     // Verify student profile exists
-    let studentSnap = await getDoc(doc(db, 'students', uid));
+    const studentSnap = await getDoc(doc(db, 'students', uid));
     let studentData: Student | null = null;
     if (studentSnap.exists()) {
       studentData = studentSnap.data() as Student;
-    } else if (email) {
-      const emailQuery = query(collection(db, 'students'), where('email', '==', email));
-      const emailSnap = await getDocs(emailQuery);
-      if (!emailSnap.empty) {
-        studentData = emailSnap.docs[0].data() as Student;
-      }
     }
 
     if (!studentData) {
@@ -655,7 +598,17 @@ export const authService = {
       throw new Error('Student profile record not found. Your account must be provisioned by college administration.');
     }
 
-    if (studentData.accountStatus === 'disabled' || (studentData as any).isActive === false) {
+    if (
+      String(studentData.role || '').toUpperCase() !== 'STUDENT' ||
+      (studentData.uid && studentData.uid !== uid) ||
+      String(studentData.email || '').trim().toLowerCase() !== email
+    ) {
+      await signOut(auth);
+      useAppStore.getState().logout();
+      throw new Error('Access denied: account does not match a provisioned student profile.');
+    }
+
+    if (studentData.accountStatus === 'disabled' || (studentData as any).accountStatus === 'deactivated' || (studentData as any).isActive === false) {
       await signOut(auth);
       useAppStore.getState().logout();
       throw new Error('This student account has been deactivated. Please contact college administration.');

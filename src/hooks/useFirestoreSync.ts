@@ -1,15 +1,10 @@
 import { useEffect } from 'react';
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  orderBy
-} from 'firebase/firestore';
+import { collection, onSnapshot, query, where, type DocumentData } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAppStore } from '../lib/store';
 import {
   Hackathon,
+  HackathonStatus,
   Student,
   Admin,
   Team,
@@ -20,6 +15,9 @@ import {
   Certificate,
   AuditLog
 } from '../types';
+import { isPlatformAdministrator, isStaffRole } from '../utils/access';
+import { normalizeAcademicYear } from '../constants/departments';
+import { sanitizeHackathonDocument } from '../utils/hackathonData';
 
 export function useFirestoreSync() {
   const currentUser = useAppStore((state) => state.currentUser);
@@ -36,261 +34,184 @@ export function useFirestoreSync() {
 
   useEffect(() => {
     const unsubscribes: Array<() => void> = [];
-
-    // 1. Sync Hackathons (Admins/HOD see drafts; public/students see published challenges)
-    try {
-      const qHackathons =
-        currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD'
-          ? query(collection(db, 'hackathons'))
-          : query(collection(db, 'hackathons'), where('status', '!=', 'DRAFT'));
-      const unsub = onSnapshot(
-        qHackathons,
-        (snapshot) => {
-          const items: Hackathon[] = [];
-          snapshot.forEach((doc) => {
-            items.push({ id: doc.id, ...doc.data() } as Hackathon);
-          });
-          setHackathons(items);
-        },
-        (error) => {
-          console.warn('Realtime sync warning (hackathons):', error.message);
-        }
-      );
-      unsubscribes.push(unsub);
-    } catch (e) {
-      console.warn('Failed to attach hackathons listener:', e);
-    }
-
-    // 2. Sync public Announcements
-    try {
-      const qAnnouncements = query(collection(db, 'announcements'));
-      const unsub = onSnapshot(
-        qAnnouncements,
-        (snapshot) => {
-          const items: Announcement[] = [];
-          snapshot.forEach((doc) => {
-            items.push({ id: doc.id, ...doc.data() } as Announcement);
-          });
-          setAnnouncements(items);
-        },
-        (error) => {
-          console.warn('Realtime sync warning (announcements):', error.message);
-        }
-      );
-      unsubscribes.push(unsub);
-    } catch (e) {
-      console.warn('Failed to attach announcements listener:', e);
-    }
-
-    // 3. Sync Certificates (Publicly readable)
-    try {
-      const qCertificates = query(collection(db, 'certificates'));
-      const unsub = onSnapshot(
-        qCertificates,
-        (snapshot) => {
-          const items: Certificate[] = [];
-          snapshot.forEach((doc) => {
-            items.push({ id: doc.id, ...doc.data() } as Certificate);
-          });
-          setCertificates(items);
-        },
-        (error) => {
-          console.warn('Realtime sync warning (certificates):', error.message);
-        }
-      );
-      unsubscribes.push(unsub);
-    } catch (e) {
-      console.warn('Failed to attach certificates listener:', e);
-    }
-
-    // Authenticated Collections
-    if (currentUser) {
-      const isHod = currentUser.role === 'HOD' || currentUser.adminData?.isHod === true;
-      const facultyDept = currentUser.adminData?.department;
-
-      // 4. Registrations (Students scoped to own records; Administrators scoped to department or all for HOD)
+    const listen = <T>(
+      source: ReturnType<typeof collection> | ReturnType<typeof query>,
+      onItems: (items: T[]) => void,
+      label: string,
+      mapDocument: (id: string, data: DocumentData) => T
+    ) => {
       try {
-        const qRegistrations = isHod
-          ? query(collection(db, 'registrations'))
-          : currentUser.role === 'ADMIN' && facultyDept
-          ? query(collection(db, 'registrations'), where('department', '==', facultyDept))
-          : query(collection(db, 'registrations'), where('studentId', '==', currentUser.uid));
-        const unsub = onSnapshot(
-          qRegistrations,
-          (snapshot) => {
-            const items: Registration[] = [];
-            snapshot.forEach((doc) => {
-              items.push({ id: doc.id, ...doc.data() } as Registration);
-            });
-            setRegistrations(items);
-          },
-          (error) => {
-            console.warn('Realtime sync warning (registrations):', error.message);
-          }
-        );
-        unsubscribes.push(unsub);
-      } catch (e) {
-        console.warn('Failed to attach registrations listener:', e);
+        const unsubscribe = onSnapshot(source, (snapshot) => {
+          onItems(snapshot.docs.map((document) => mapDocument(document.id, document.data() as DocumentData)));
+        }, (error) => console.warn(`Realtime sync warning (${label}):`, error.message));
+        unsubscribes.push(unsubscribe);
+      } catch (error) {
+        console.warn(`Failed to attach ${label} listener:`, error);
       }
-
-      // 5. Teams (Students scoped to own squads; Administrators scoped to department or all for HOD)
-      try {
-        const qTeams = isHod
-          ? query(collection(db, 'teams'))
-          : currentUser.role === 'ADMIN' && facultyDept
-          ? query(collection(db, 'teams'), where('department', '==', facultyDept))
-          : query(collection(db, 'teams'), where('memberIds', 'array-contains', currentUser.uid));
-        const unsub = onSnapshot(
-          qTeams,
-          (snapshot) => {
-            const items: Team[] = [];
-            snapshot.forEach((doc) => {
-              items.push({ id: doc.id, ...doc.data() } as Team);
-            });
-            setTeams(items);
-          },
-          (error) => {
-            console.warn('Realtime sync warning (teams):', error.message);
-          }
-        );
-        unsubscribes.push(unsub);
-      } catch (e) {
-        console.warn('Failed to attach teams listener:', e);
-      }
-
-      // 6. Submissions (Students scoped to own submissions; Administrators scoped to department or all for HOD)
-      try {
-        const qSubmissions = isHod
-          ? query(collection(db, 'submissions'))
-          : currentUser.role === 'ADMIN' && facultyDept
-          ? query(collection(db, 'submissions'), where('department', '==', facultyDept))
-          : query(collection(db, 'submissions'), where('submittedBy', '==', currentUser.uid));
-        const unsub = onSnapshot(
-          qSubmissions,
-          (snapshot) => {
-            const items: Submission[] = [];
-            snapshot.forEach((doc) => {
-              items.push({ id: doc.id, ...doc.data() } as Submission);
-            });
-            setSubmissions(items);
-          },
-          (error) => {
-            console.warn('Realtime sync warning (submissions):', error.message);
-          }
-        );
-        unsubscribes.push(unsub);
-      } catch (e) {
-        console.warn('Failed to attach submissions listener:', e);
-      }
-
-      // 7. Notifications (Scoped to current student or broadcast 'ALL' for students; all for administrators)
-      try {
-        const qNotifications =
-          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
-            ? query(collection(db, 'notifications'))
-            : query(collection(db, 'notifications'), where('userId', 'in', [currentUser.uid, 'ALL']));
-        const unsub = onSnapshot(
-          qNotifications,
-          (snapshot) => {
-            const items: NotificationItem[] = [];
-            snapshot.forEach((doc) => {
-              const data = doc.data() as NotificationItem;
-              // Filter to this user or broadcast 'ALL'
-              if (
-                currentUser.role === 'ADMIN' ||
-                data.userId === currentUser.uid ||
-                data.userId === 'ALL' ||
-                !data.userId
-              ) {
-                items.push({ ...data, id: doc.id });
-              }
-            });
-            setNotifications(items);
-          },
-          (error) => {
-            console.warn('Realtime sync warning (notifications):', error.message);
-          }
-        );
-        unsubscribes.push(unsub);
-      } catch (e) {
-        console.warn('Failed to attach notifications listener:', e);
-      }
-
-      // 8. Students (Admin & HOD: scoped to faculty department or all for HOD)
-      if (currentUser.role === 'ADMIN' || currentUser.role === 'HOD') {
-        try {
-          const qStudents = isHod
-            ? query(collection(db, 'students'))
-            : facultyDept
-            ? query(collection(db, 'students'), where('department', '==', facultyDept))
-            : query(collection(db, 'students'));
-          const unsub = onSnapshot(
-            qStudents,
-            (snapshot) => {
-              const items: Student[] = [];
-              snapshot.forEach((doc) => {
-                items.push({ uid: doc.id, ...doc.data() } as unknown as Student);
-              });
-              setStudents(items);
-            },
-            (error) => {
-              console.warn('Realtime sync warning (students):', error.message);
-            }
-          );
-          unsubscribes.push(unsub);
-        } catch (e) {
-          console.warn('Failed to attach students listener:', e);
-        }
-
-        // 9. Admins list (Admin & HOD)
-        try {
-          const qAdmins = query(collection(db, 'admins'));
-          const unsub = onSnapshot(
-            qAdmins,
-            (snapshot) => {
-              const items: Admin[] = [];
-              snapshot.forEach((doc) => {
-                items.push({ uid: doc.id, ...doc.data() } as Admin);
-              });
-              setAdmins(items);
-            },
-            (error) => {
-              console.warn('Realtime sync warning (admins):', error.message);
-            }
-          );
-          unsubscribes.push(unsub);
-        } catch (e) {
-          console.warn('Failed to attach admins listener:', e);
-        }
-      }
-
-      // 10. Audit Logs (HOD only)
-      if (currentUser.role === 'HOD') {
-        try {
-          const qAudit = query(collection(db, 'audit_logs'));
-          const unsub = onSnapshot(
-            qAudit,
-            (snapshot) => {
-              const items: AuditLog[] = [];
-              snapshot.forEach((doc) => {
-                items.push({ id: doc.id, ...doc.data() } as AuditLog);
-              });
-              setAuditLogs(items);
-            },
-            (error) => {
-              console.warn('Realtime sync warning (audit_logs):', error.message);
-            }
-          );
-          unsubscribes.push(unsub);
-        } catch (e) {
-          console.warn('Failed to attach audit_logs listener:', e);
-        }
-      }
-    }
-
-    return () => {
-      unsubscribes.forEach((unsub) => unsub());
     };
+
+    const staff = isStaffRole(currentUser?.role);
+    const platformAdmin = isPlatformAdministrator(currentUser);
+    const department = staff ? currentUser?.adminData?.department : undefined;
+    const authorizedYears = staff
+      ? (currentUser?.adminData?.authorizedYears || []).map(normalizeAcademicYear).filter(Boolean) as string[]
+      : [];
+
+    // Never leave one user's private records visible while another account's listeners load.
+    setStudents([]);
+    setAdmins([]);
+    setTeams([]);
+    setRegistrations([]);
+    setSubmissions([]);
+    setNotifications([]);
+    setCertificates([]);
+    setAuditLogs([]);
+
+    // Published events remain discoverable; staff also receive their department's drafts.
+    const discoverableStatuses: HackathonStatus[] = [
+      'PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'ONGOING', 'COMPLETED', 'REGISTRATION_CLOSED', 'LIVE', 'CANCELLED', 'SUBMISSION_CLOSED',
+      'published', 'registration_open', 'upcoming', 'ongoing', 'completed', 'registration_closed', 'live', 'cancelled', 'submission_closed'
+    ];
+    const publishedHackathons = new Map<string, Hackathon>();
+    const departmentHackathons = new Map<string, Hackathon>();
+    const refreshHackathons = () => setHackathons([...new Map([...publishedHackathons, ...departmentHackathons]).values()]);
+    const storeHackathons = (target: Map<string, Hackathon>, rows: Hackathon[]) => {
+      target.clear();
+      rows.forEach((item) => target.set(item.id, item));
+      refreshHackathons();
+    };
+    if (platformAdmin) {
+      listen(collection(db, 'hackathons'), (items) => storeHackathons(publishedHackathons, items as Hackathon[]), 'hackathons', (id, data) => sanitizeHackathonDocument(id, data));
+    } else {
+      listen(query(collection(db, 'hackathons'), where('status', 'in', discoverableStatuses)), (items) => storeHackathons(publishedHackathons, items as Hackathon[]), 'published hackathons', (id, data) => sanitizeHackathonDocument(id, data));
+      if (staff && department) {
+        listen(query(collection(db, 'hackathons'), where('department', '==', department)), (items) => storeHackathons(departmentHackathons, items as Hackathon[]), 'department hackathons', (id, data) => sanitizeHackathonDocument(id, data));
+      }
+    }
+
+    // Anonymous visitors see only the public notice board. Staff add their department's notices.
+    const publicAnnouncements = new Map<string, Announcement>();
+    const departmentAnnouncements = new Map<string, Announcement>();
+    const refreshAnnouncements = () => setAnnouncements([...new Map([...publicAnnouncements, ...departmentAnnouncements]).values()]);
+    const storeAnnouncements = (target: Map<string, Announcement>, rows: Announcement[]) => {
+      target.clear();
+      rows.forEach((item) => target.set(item.id, item));
+      refreshAnnouncements();
+    };
+    if (platformAdmin) {
+      listen(collection(db, 'announcements'), (items) => storeAnnouncements(publicAnnouncements, items as Announcement[]), 'announcements', (id, data) => ({ id, ...data } as Announcement));
+    } else {
+      listen(query(collection(db, 'announcements'), where('target', '==', 'ALL')), (items) => storeAnnouncements(publicAnnouncements, items as Announcement[]), 'public announcements', (id, data) => ({ id, ...data } as Announcement));
+      if (staff && department) {
+        listen(query(collection(db, 'announcements'), where('department', '==', department)), (items) => storeAnnouncements(departmentAnnouncements, items as Announcement[]), 'department announcements', (id, data) => ({ id, ...data } as Announcement));
+      } else if (currentUser?.studentData?.department) {
+        const studentDepartment = currentUser.studentData.department;
+        listen(
+          query(collection(db, 'announcements'), where('target', '==', 'DEPT'), where('department', '==', studentDepartment)),
+          (items) => storeAnnouncements(departmentAnnouncements, items as Announcement[]),
+          'student department announcements',
+          (id, data) => ({ id, ...data } as Announcement)
+        );
+      }
+    }
+
+    if (!currentUser) {
+    } else {
+      const registrationQuery = platformAdmin
+        ? collection(db, 'registrations')
+        : staff
+          ? authorizedYears.length
+            ? query(collection(db, 'registrations'), where('department', '==', department || ''), where('academicYear', 'in', authorizedYears.slice(0, 10)))
+            : query(collection(db, 'registrations'), where('department', '==', department || ''))
+          : query(collection(db, 'registrations'), where('studentId', '==', currentUser.uid));
+      listen(registrationQuery, (items) => setRegistrations(items as Registration[]), 'registrations', (id, data) => ({ id, ...data } as Registration));
+
+      const teamQuery = platformAdmin
+        ? collection(db, 'teams')
+        : staff
+          ? authorizedYears.length
+            ? query(collection(db, 'teams'), where('department', '==', department || ''), where('academicYear', 'in', authorizedYears.slice(0, 10)))
+            : query(collection(db, 'teams'), where('department', '==', department || ''))
+          : query(collection(db, 'teams'), where('memberIds', 'array-contains', currentUser.uid));
+      listen(teamQuery, (items) => setTeams(items as Team[]), 'teams', (id, data) => ({ id, ...data } as Team));
+
+      if (platformAdmin || staff) {
+        const submissionQuery = platformAdmin
+          ? collection(db, 'submissions')
+          : authorizedYears.length
+            ? query(collection(db, 'submissions'), where('department', '==', department || ''), where('academicYear', 'in', authorizedYears.slice(0, 10)))
+            : query(collection(db, 'submissions'), where('department', '==', department || ''));
+        listen(submissionQuery, (items) => setSubmissions(items as Submission[]), 'submissions', (id, data) => ({ id, ...data } as Submission));
+      } else {
+        const submittedByStudent = new Map<string, Submission>();
+        const teamSubmissions = new Map<string, Submission>();
+        const refreshStudentSubmissions = () => setSubmissions([...new Map([...submittedByStudent, ...teamSubmissions]).values()]);
+        listen<Submission>(query(collection(db, 'submissions'), where('submittedBy', '==', currentUser.uid)), (items) => {
+          submittedByStudent.clear();
+          items.forEach((item) => submittedByStudent.set(item.id, item));
+          refreshStudentSubmissions();
+        }, 'student submissions', (id, data) => ({ id, ...data } as Submission));
+        listen<Submission>(query(collection(db, 'submissions'), where('memberIds', 'array-contains', currentUser.uid)), (items) => {
+          teamSubmissions.clear();
+          items.forEach((item) => teamSubmissions.set(item.id, item));
+          refreshStudentSubmissions();
+        }, 'team submissions', (id, data) => ({ id, ...data } as Submission));
+      }
+
+      const notificationItems = new Map<string, NotificationItem>();
+      const readNotificationIds = new Set<string>();
+      const refreshNotifications = () => setNotifications(
+        [...notificationItems.values()].map((item) => ({ ...item, isRead: readNotificationIds.has(item.id) }))
+      );
+      const notificationQuery = platformAdmin
+        ? collection(db, 'notifications')
+        : query(collection(db, 'notifications'), where('userId', 'in', [currentUser.uid, 'ALL']));
+      listen<NotificationItem>(notificationQuery, (items) => {
+        notificationItems.clear();
+        items.forEach((item) => notificationItems.set(item.id, item));
+        refreshNotifications();
+      }, 'notifications', (id, data) => ({ id, ...data } as NotificationItem));
+      listen<{ notificationId: string }>(
+        query(collection(db, 'notification_reads'), where('uid', '==', currentUser.uid)),
+        (items) => {
+          readNotificationIds.clear();
+          items.forEach((item) => readNotificationIds.add(item.notificationId));
+          refreshNotifications();
+        },
+        'notification read markers',
+        (id, data) => ({ notificationId: String(data.notificationId || '') })
+      );
+
+      const certificateQuery = platformAdmin
+        ? collection(db, 'certificates')
+        : staff
+          ? query(collection(db, 'certificates'), where('department', '==', department || ''))
+          : query(collection(db, 'certificates'), where('studentId', '==', currentUser.uid));
+      listen(certificateQuery, (items) => setCertificates(items as Certificate[]), 'certificates', (id, data) => ({ id, ...data } as Certificate));
+
+      if (staff) {
+        const studentQuery = platformAdmin
+          ? collection(db, 'students')
+          : authorizedYears.length
+            ? query(collection(db, 'students'), where('department', '==', department || ''), where('year', 'in', authorizedYears.slice(0, 10)))
+            : query(collection(db, 'students'), where('department', '==', department || ''));
+        listen(studentQuery, (items) => setStudents(items as Student[]), 'students', (id, data) => ({ uid: id, ...data } as unknown as Student));
+
+        const adminQuery = platformAdmin
+          ? collection(db, 'admins')
+          : query(collection(db, 'admins'), where('department', '==', department || ''));
+        listen(adminQuery, (items) => setAdmins(items as Admin[]), 'admins', (id, data) => ({ uid: id, ...data } as Admin));
+      } else {
+      }
+
+      if (platformAdmin) {
+        listen(query(collection(db, 'audit_logs')), (items) => setAuditLogs(items as AuditLog[]), 'audit logs', (id, data) => ({ id, ...data } as AuditLog));
+      } else {
+        setAuditLogs([]);
+      }
+    }
+
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [
     currentUser,
     setHackathons,
@@ -301,6 +222,7 @@ export function useFirestoreSync() {
     setSubmissions,
     setAnnouncements,
     setNotifications,
-    setCertificates
+    setCertificates,
+    setAuditLogs
   ]);
 }

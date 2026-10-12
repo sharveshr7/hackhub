@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
+import { isPlatformAdministrator } from '../../utils/access';
 import {
   Users,
   CalendarDays,
@@ -34,43 +35,32 @@ import { SUPPORTED_DEPARTMENTS, isSupportedDepartment, getDepartmentBadge } from
 export const AdminDashboardPage: React.FC = () => {
   const { currentUser, hackathons, registrations, teams, submissions, students, admins } = useAppStore();
   
-  const isHod = currentUser?.role === 'HOD';
-  const facultyDept = currentUser?.adminData?.department || '';
+  const platformAdministrator = isPlatformAdministrator(currentUser);
+  const facultyDept = platformAdministrator ? undefined : currentUser?.adminData?.department;
   const isDeptApprover = Boolean(currentUser?.adminData?.isDepartmentApprover);
 
-  // For HOD: can switch between ALL or specific supported department.
-  // For Faculty: strictly scoped to their authorized department.
-  const [hodDeptFilter, setHodDeptFilter] = useState<'ALL' | 'Biotechnology' | 'Biomedical Engineering'>('ALL');
-  const activeDeptFilter = isHod ? hodDeptFilter : facultyDept;
-
   const scopedHackathons = useMemo(() => {
-    if (isHod && activeDeptFilter === 'ALL') return hackathons;
-    return hackathons.filter((h) => h.department === 'ALL' || h.department === activeDeptFilter);
-  }, [hackathons, isHod, activeDeptFilter]);
+    return platformAdministrator ? hackathons : hackathons.filter((h) => h.department === facultyDept);
+  }, [hackathons, facultyDept, platformAdministrator]);
 
   const scopedRegistrations = useMemo(() => {
-    if (isHod && activeDeptFilter === 'ALL') return registrations;
-    return registrations.filter((r) => r.department === activeDeptFilter);
-  }, [registrations, isHod, activeDeptFilter]);
+    return platformAdministrator ? registrations : registrations.filter((r) => r.department === facultyDept);
+  }, [registrations, facultyDept, platformAdministrator]);
 
   const scopedTeams = useMemo(() => {
-    if (isHod && activeDeptFilter === 'ALL') return teams;
-    return teams.filter((t) => t.department === activeDeptFilter);
-  }, [teams, isHod, activeDeptFilter]);
+    return platformAdministrator ? teams : teams.filter((t) => t.department === facultyDept);
+  }, [teams, facultyDept, platformAdministrator]);
 
   const scopedSubmissions = useMemo(() => {
-    if (isHod && activeDeptFilter === 'ALL') return submissions;
-    return submissions.filter((s) => s.department === activeDeptFilter);
-  }, [submissions, isHod, activeDeptFilter]);
+    return platformAdministrator ? submissions : submissions.filter((s) => s.department === facultyDept);
+  }, [submissions, facultyDept, platformAdministrator]);
 
   const scopedStudents = useMemo(() => {
-    if (isHod && activeDeptFilter === 'ALL') return students;
-    return students.filter((s) => s.department === activeDeptFilter);
-  }, [students, isHod, activeDeptFilter]);
+    return platformAdministrator ? students : students.filter((s) => s.department === facultyDept);
+  }, [students, facultyDept, platformAdministrator]);
 
   const pendingFacultyCount = admins.filter((a) => {
     if (a.approvalStatus !== 'PENDING') return false;
-    if (isHod) return true;
     if (isDeptApprover) return a.department === facultyDept;
     return false;
   }).length;
@@ -298,7 +288,7 @@ export const AdminDashboardPage: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-slate-900">
-                {isHod ? 'Institution Oversight' : `Authorized Scope: ${facultyDept || 'Department'}`}
+                Authorized Scope: {platformAdministrator ? 'Platform-wide' : facultyDept || 'Department Incomplete'}
               </span>
               {isDeptApprover && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
@@ -306,49 +296,19 @@ export const AdminDashboardPage: React.FC = () => {
                   Department Approver
                 </span>
               )}
-              {!isHod && facultyDept && (
+              {facultyDept && (
                 <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getDepartmentBadge(facultyDept).className}`}>
                   {facultyDept}
                 </span>
               )}
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {isHod
-                ? 'Full access across Biotechnology and Biomedical Engineering departments.'
-                : `Private student records, squads, and registrations are strictly scoped to ${facultyDept}.`}
+              {platformAdministrator
+                ? 'Platform-wide reporting uses all current Firebase records.'
+                : `Private student records, squads, and registrations are scoped to ${facultyDept || 'your authorized department'}.`}
             </p>
           </div>
         </div>
-
-        {/* HOD Department Switcher */}
-        {isHod && (
-          <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
-            <Filter className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
-            <button
-              onClick={() => setHodDeptFilter('ALL')}
-              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
-                hodDeptFilter === 'ALL'
-                  ? 'bg-blue-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              All Departments
-            </button>
-            {SUPPORTED_DEPARTMENTS.map((dept) => (
-              <button
-                key={dept}
-                onClick={() => setHodDeptFilter(dept as any)}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
-                  hodDeptFilter === dept
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                {dept === 'Biotechnology' ? 'Biotechnology' : 'Biomedical'}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* PENDING FACULTY REGISTRATIONS ALERT BANNER */}

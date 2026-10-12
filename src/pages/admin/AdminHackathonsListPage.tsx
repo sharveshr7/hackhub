@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
+import { isPlatformAdministrator } from '../../utils/access';
 import { hackathonService } from '../../services/hackathonService';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { Button } from '../../components/common/Button';
@@ -33,18 +34,17 @@ import {
 } from 'lucide-react';
 import { Hackathon, HackathonStatus } from '../../types';
 import { getOrganizerTypeLabel, getOrganizerBadgeStyle } from '../../utils/eventHelpers';
-import { SUPPORTED_DEPARTMENTS, getDepartmentBadge } from '../../constants/departments';
+import { getDepartmentBadge } from '../../constants/departments';
 
 export const AdminHackathonsListPage: React.FC = () => {
   const { currentUser, hackathons, registrations, teams, submissions } = useAppStore();
   const { addToast } = useToast();
 
-  const isHod = currentUser?.role === 'HOD';
-  const facultyDept = currentUser?.adminData?.department || '';
+  const platformAdministrator = isPlatformAdministrator(currentUser);
+  const facultyDept = platformAdministrator ? undefined : currentUser?.adminData?.department;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'DRAFT' | 'REG_OPEN' | 'REG_CLOSED' | 'LIVE' | 'COMPLETED'>('ALL');
-  const [deptFilter, setDeptFilter] = useState<'ALL' | 'Biotechnology' | 'Biomedical Engineering' | 'INSTITUTION_WIDE'>('ALL');
 
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [attendanceTarget, setAttendanceTarget] = useState<Hackathon | null>(null);
@@ -52,15 +52,12 @@ export const AdminHackathonsListPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const canManageEvent = (h: Hackathon) => {
-    if (isHod) return true;
-    if (h.createdBy === currentUser?.uid) return true;
-    if (h.department === facultyDept) return true;
-    return false;
+    return platformAdministrator || h.department === facultyDept;
   };
 
   const handleTogglePublish = async (h: Hackathon) => {
     if (!canManageEvent(h)) {
-      addToast('You can only publish or unpublish events in your own department.', 'error');
+      addToast('You can only publish or unpublish events within your authorized scope.', 'error');
       return;
     }
     const newStatus: HackathonStatus = h.status === 'DRAFT' ? 'REGISTRATION_OPEN' : 'DRAFT';
@@ -99,14 +96,8 @@ export const AdminHackathonsListPage: React.FC = () => {
       if (!match) return false;
     }
 
-    // Department Filter
-    if (deptFilter === 'Biotechnology' && h.department !== 'Biotechnology') {
-      return false;
-    }
-    if (deptFilter === 'Biomedical Engineering' && h.department !== 'Biomedical Engineering') {
-      return false;
-    }
-    if (deptFilter === 'INSTITUTION_WIDE' && h.department !== 'ALL') {
+    // Department Scope: Strictly match authorized department
+    if (!platformAdministrator && h.department !== facultyDept) {
       return false;
     }
 
@@ -149,15 +140,25 @@ export const AdminHackathonsListPage: React.FC = () => {
     if (!attendanceTarget) return;
     setIsLoading(true);
     try {
-      await hackathonService.toggleAttendance(
-        attendanceTarget.id,
-        isOpen,
-        newAttendanceCode || attendanceTarget.attendanceCode
-      );
-      addToast(`Venue attendance code set to ${isOpen ? 'ACTIVE' : 'CLOSED'}.`, 'success');
-      setAttendanceTarget(null);
+      const gate = await hackathonService.toggleAttendance(attendanceTarget.id, isOpen);
+      setNewAttendanceCode(gate.attendanceCode);
+      addToast(`Venue attendance check-in ${isOpen ? 'opened' : 'closed'}.`, 'success');
+      if (!isOpen) setAttendanceTarget(null);
     } catch (err: any) {
       addToast(err.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openAttendanceDialog = async (hackathon: Hackathon) => {
+    setIsLoading(true);
+    try {
+      const gate = await hackathonService.getAttendanceGate(hackathon.id);
+      setNewAttendanceCode(gate.attendanceCode);
+      setAttendanceTarget(hackathon);
+    } catch (err: any) {
+      addToast(err.message || 'Attendance gate could not be loaded.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -215,46 +216,14 @@ export const AdminHackathonsListPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Department Scope Filter Pills */}
+        {/* Department Scope Indicator */}
         <div className="flex items-center gap-2 pt-2 border-t border-slate-100 text-xs">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
-            Department Scope:
+            {platformAdministrator ? 'Authorized Scope:' : 'Authorized Department:'}
           </span>
-          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
-            <button
-              onClick={() => setDeptFilter('ALL')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                deptFilter === 'ALL'
-                  ? 'bg-navy-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              All Scopes
-            </button>
-            {SUPPORTED_DEPARTMENTS.map((dept) => (
-              <button
-                key={dept}
-                onClick={() => setDeptFilter(dept as any)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                  deptFilter === dept
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
-              >
-                {dept}
-              </button>
-            ))}
-            <button
-              onClick={() => setDeptFilter('INSTITUTION_WIDE')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                deptFilter === 'INSTITUTION_WIDE'
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              Institution-Wide (ALL)
-            </button>
-          </div>
+          {facultyDept
+            ? <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border ${getDepartmentBadge(facultyDept).className}`}>{facultyDept}</span>
+            : <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border border-slate-200 bg-slate-50 text-slate-700">{platformAdministrator ? 'Platform-wide' : 'Unassigned'}</span>}
         </div>
       </div>
 
@@ -405,10 +374,7 @@ export const AdminHackathonsListPage: React.FC = () => {
                             <FolderGit2 className="w-3.5 h-3.5" />
                           </Link>
                           <button
-                            onClick={() => {
-                              setAttendanceTarget(h);
-                              setNewAttendanceCode(h.attendanceCode || '');
-                            }}
+                            onClick={() => void openAttendanceDialog(h)}
                             title="Venue Check-in Code"
                             className="p-1 text-blue-600 hover:text-blue-800 rounded hover:bg-blue-50"
                           >
@@ -513,7 +479,7 @@ export const AdminHackathonsListPage: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-[10px] text-slate-400 uppercase font-semibold block">Attendance</span>
-                    <span className="font-mono text-blue-600 font-bold">{h.attendanceCode || 'None'}</span>
+                    <span className="font-mono text-slate-500 font-bold">Private gate</span>
                   </div>
                 </div>
 
@@ -556,10 +522,7 @@ export const AdminHackathonsListPage: React.FC = () => {
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => {
-                        setAttendanceTarget(h);
-                        setNewAttendanceCode(h.attendanceCode || '');
-                      }}
+                      onClick={() => void openAttendanceDialog(h)}
                       className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
                       title="Attendance Check-in"
                     >
@@ -607,12 +570,10 @@ export const AdminHackathonsListPage: React.FC = () => {
               Students must enter this passcode in their portal to verify attendance for this hackathon.
             </p>
 
-            <Input
-              label="Check-in Security Code"
-              value={newAttendanceCode}
-              onChange={(e) => setNewAttendanceCode(e.target.value.toUpperCase())}
-              placeholder="e.g. KIT26"
-            />
+            <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <span className="text-slate-500">Current private code: </span>
+              <span className="font-mono font-bold text-navy-950">{newAttendanceCode || 'No active code'}</span>
+            </div>
 
             <div className="flex justify-between items-center pt-3 border-t border-slate-100">
               <Button

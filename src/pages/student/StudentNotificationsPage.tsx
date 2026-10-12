@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 
 export const StudentNotificationsPage: React.FC = () => {
-  const { notifications, markNotificationAsRead, markAllNotificationsAsRead } = useAppStore();
+  const { currentUser, notifications } = useAppStore();
   const { addToast } = useToast();
 
   const [activeCategory, setActiveCategory] = useState<string>('ALL');
@@ -60,8 +60,20 @@ export const StudentNotificationsPage: React.FC = () => {
   };
 
   const handleMarkAllRead = async () => {
-    markAllNotificationsAsRead();
-    addToast('All notifications marked as read.', 'success');
+    try {
+      await notificationService.markAllAsRead(currentUser?.uid);
+      addToast('All notifications marked as read.', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Notifications could not be updated.', 'error');
+    }
+  };
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await notificationService.markAsRead(id);
+    } catch (err: any) {
+      addToast(err.message || 'Notification could not be updated.', 'error');
+    }
   };
 
   return (
@@ -124,7 +136,7 @@ export const StudentNotificationsPage: React.FC = () => {
           filtered.map((item) => (
             <div
               key={item.id}
-              onClick={() => markNotificationAsRead(item.id)}
+              onClick={() => void handleMarkAsRead(item.id)}
               className={`p-5 flex items-start gap-4 transition-colors cursor-pointer hover:bg-slate-50/80 ${
                 !item.isRead ? 'bg-blue-50/20' : ''
               }`}

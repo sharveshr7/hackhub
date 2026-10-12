@@ -1,4 +1,4 @@
-export type UserRole = 'STUDENT' | 'ADMIN' | 'HOD';
+export type UserRole = 'STUDENT' | 'FACULTY' | 'ADMIN';
 
 export type RegistrationStatus =
   | 'PENDING'
@@ -23,6 +23,8 @@ export type HackathonStatus =
   | 'PUBLISHED'
   | 'REGISTRATION_OPEN'
   | 'REGISTRATION_CLOSED'
+  | 'UPCOMING'
+  | 'ONGOING'
   | 'LIVE'
   | 'COMPLETED'
   | 'CANCELLED'
@@ -32,6 +34,8 @@ export type HackathonStatus =
   | 'published'
   | 'registration_open'
   | 'registration_closed'
+  | 'upcoming'
+  | 'ongoing'
   | 'live'
   | 'completed'
   | 'cancelled'
@@ -122,8 +126,6 @@ export interface Hackathon {
   evaluationCriteria?: EvaluationCriterion[];
   faq?: FAQItem[];
   status: HackathonStatus;
-  attendanceOpen?: boolean;
-  attendanceCode?: string; // Secret check-in code announced at the college venue
   createdAt: string;
   updatedAt: string;
   publishedBy?: string;
@@ -156,7 +158,7 @@ export interface Admin {
   uid: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'admin' | 'HOD' | 'hod';
+  role: 'ADMIN' | 'FACULTY' | 'admin' | 'faculty';
   designation: string;
   department: string;
   phone?: string;
@@ -164,9 +166,9 @@ export interface Admin {
   institution?: string;
   approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
   isActive?: boolean;
-  isHod?: boolean;
   isFirstAdmin?: boolean;
-  isDepartmentApprover?: boolean; // Designated by HOD to approve applicants for their own department
+  isPlatformAdmin?: boolean;
+  isDepartmentApprover?: boolean; // Authorized to approve applicants for their own department
   departmentApproverScope?: string;
   researchSpecialization?: string;
   customSpecialization?: string;
@@ -201,7 +203,7 @@ export interface AuditLog {
     | 'ADMIN_REACTIVATED'
     | 'STUDENT_PROVISIONED'
     | 'ROLE_CHANGED'
-    | 'HOD_PROVISIONED'
+    | 'INITIAL_ADMIN_PROVISIONED'
     | 'DEPT_APPROVER_DESIGNATED'
     | 'DEPT_APPROVER_REVOKED'
     | 'FACULTY_PERMISSIONS_UPDATED'
@@ -239,6 +241,7 @@ export interface Team {
   members: TeamMember[];
   memberIds?: string[];
   department?: string;
+  academicYear?: string;
   status: 'forming' | 'ready' | 'locked' | 'confirmed' | 'CONFIRMED';
   createdAt: string;
   updatedAt?: string;
@@ -249,6 +252,7 @@ export interface Registration {
   hackathonId: string;
   studentId: string;
   department?: string;
+  academicYear?: string;
   teamId?: string;
   registrationNumber: string; // e.g. "HACK-2026-01482"
   status: RegistrationStatus;
@@ -270,9 +274,12 @@ export interface Submission {
   hackathonId: string;
   teamId: string;
   teamName: string;
+  leaderId?: string;
+  memberIds?: string[];
   projectTitle: string;
   title?: string;
   department?: string;
+  academicYear?: string;
   problemStatementId: string;
   problemStatementTitle: string;
   tagline?: string;
@@ -325,6 +332,7 @@ export interface Announcement {
   hackathonTitle?: string;
   priority: 'NORMAL' | 'IMPORTANT' | 'CRITICAL';
   target: 'ALL' | 'REGISTERED' | 'SPECIFIC_HACKATHON' | 'DEPT';
+  department?: string;
   publishedAt: string;
   expiryDate?: string;
   status?: 'ACTIVE' | 'ARCHIVED';
@@ -349,6 +357,8 @@ export interface Certificate {
   hackathonTitle: string;
   title?: string;
   studentId: string;
+  department?: string;
+  academicYear?: string;
   studentName: string;
   registerNumber: string;
   type: 'PARTICIPATION' | 'WINNER' | 'RUNNER_UP' | 'SPECIAL_MENTION';

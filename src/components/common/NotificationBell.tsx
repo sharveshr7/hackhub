@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bell, CheckCheck, ExternalLink } from 'lucide-react';
 import { useAppStore } from '../../lib/store';
 import { Link } from 'react-router-dom';
+import { isStaffRole } from '../../utils/access';
+import { notificationService } from '../../services/notificationService';
 
 export const NotificationBell: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,14 +11,28 @@ export const NotificationBell: React.FC = () => {
 
   const notifications = useAppStore((state) => state.notifications);
   const currentUser = useAppStore((state) => state.currentUser);
-  const markNotificationAsRead = useAppStore((state) => state.markNotificationAsRead);
-  const markAllNotificationsAsRead = useAppStore((state) => state.markAllNotificationsAsRead);
 
   // Filter for current user or global
   const userNotifications = notifications.filter(
-    (n) => !n.userId || (currentUser && n.userId === currentUser.uid)
+    (n) => !n.userId || n.userId === 'ALL' || (currentUser && n.userId === currentUser.uid)
   );
   const unreadCount = userNotifications.filter((n) => !n.isRead).length;
+
+  const markAllAsRead = async () => {
+    try {
+      await notificationService.markAllAsRead(currentUser?.uid);
+    } catch (error) {
+      console.warn('Unable to mark notifications as read:', error);
+    }
+  };
+
+  const markAsRead = async (id: string) => {
+    try {
+      await notificationService.markAsRead(id);
+    } catch (error) {
+      console.warn('Unable to mark notification as read:', error);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -56,7 +72,7 @@ export const NotificationBell: React.FC = () => {
             </div>
             {unreadCount > 0 && (
               <button
-                onClick={() => markAllNotificationsAsRead()}
+                onClick={() => void markAllAsRead()}
                 className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 cursor-pointer"
               >
                 <CheckCheck className="w-3.5 h-3.5" />
@@ -72,7 +88,7 @@ export const NotificationBell: React.FC = () => {
               userNotifications.slice(0, 5).map((notif) => (
                 <div
                   key={notif.id}
-                  onClick={() => markNotificationAsRead(notif.id)}
+                  onClick={() => void markAsRead(notif.id)}
                   className={`p-3.5 text-xs transition-colors hover:bg-slate-50 cursor-pointer ${
                     !notif.isRead ? 'bg-cyan-50/40' : ''
                   }`}
@@ -94,7 +110,7 @@ export const NotificationBell: React.FC = () => {
 
           <div className="p-2.5 bg-slate-50 border-t border-slate-100 text-center">
             <Link
-              to={currentUser?.role === 'ADMIN' ? '/admin/notifications' : '/student/notifications'}
+              to={isStaffRole(currentUser?.role) ? '/admin/notifications' : '/student/notifications'}
               onClick={() => setIsOpen(false)}
               className="text-xs font-semibold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
             >

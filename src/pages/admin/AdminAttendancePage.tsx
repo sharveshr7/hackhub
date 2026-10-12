@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../../lib/store';
 import {
   UserCheck,
@@ -21,25 +21,39 @@ import { Button } from '../../components/common/Button';
 import { PageHeader } from '../../components/common/PageHeader';
 import { hackathonService } from '../../services/hackathonService';
 import { attendanceService } from '../../services/attendanceService';
+import { downloadExcelWorkbook, getHackathonReportTitle, resolveHackathonReference } from '../../utils/excelExport.mjs';
+import { isPlatformAdministrator } from '../../utils/access';
 
 export const AdminAttendancePage: React.FC = () => {
-  const { hackathons, registrations, students, currentUser, updateHackathon, updateRegistrationStatus } = useAppStore();
+  const { hackathons, registrations, students, currentUser } = useAppStore();
   const { showToast } = useToast();
 
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const facultyDept = currentUser?.adminData?.department;
+  const facultyDept = isPlatformAdministrator(currentUser) ? undefined : currentUser?.adminData?.department;
 
   const [selectedHackathonId, setSelectedHackathonId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'attended' | 'pending'>('all');
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+  const [attendanceGates, setAttendanceGates] = useState<Record<string, { attendanceOpen: boolean; attendanceCode: string }>>({});
 
-  const scopedHackathons = hackathons.filter((h) => {
-    if (isHod) return true;
-    if (h.department && (h.department === facultyDept || h.department === 'ALL')) return true;
-    if (h.publishedBy === currentUser?.uid) return true;
-    return false;
-  });
+  const scopedHackathons = useMemo(() => hackathons.filter((hackathon) => {
+    if (isPlatformAdministrator(currentUser)) return true;
+    return (hackathon.department && hackathon.department === facultyDept) || hackathon.publishedBy === currentUser?.uid;
+  }), [hackathons, facultyDept, currentUser]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(scopedHackathons.map(async (hackathon) => {
+      try {
+        return [hackathon.id, await hackathonService.getAttendanceGate(hackathon.id)] as const;
+      } catch {
+        return [hackathon.id, { attendanceOpen: false, attendanceCode: '' }] as const;
+      }
+    })).then((entries) => {
+      if (!cancelled) setAttendanceGates(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  }, [scopedHackathons]);
 
   // Compute stats per hackathon and totals
   const hackathonStats = scopedHackathons.map((h) => {
@@ -64,11 +78,11 @@ export const AdminAttendancePage: React.FC = () => {
 
   // Filtered registrations for roster table
   const filteredRegistrations = registrations.filter((reg) => {
-    if (!isHod && facultyDept) {
+    if (facultyDept) {
       const student = students.find((s) => s.uid === reg.studentId);
       const hackathon = hackathons.find((h) => h.id === reg.hackathonId);
       const eventDept = hackathon?.department;
-      if (eventDept && eventDept !== facultyDept && eventDept !== 'ALL') return false;
+      if (eventDept && eventDept !== facultyDept) return false;
       if (student && student.department !== facultyDept) return false;
     }
 
@@ -98,8 +112,8 @@ export const AdminAttendancePage: React.FC = () => {
 
   const handleToggleAttendanceOpen = async (hackathonId: string, current: boolean) => {
     try {
-      updateHackathon(hackathonId, { attendanceOpen: !current });
-      await hackathonService.toggleAttendance(hackathonId, !current);
+      const gate = await hackathonService.toggleAttendance(hackathonId, !current);
+      setAttendanceGates((state) => ({ ...state, [hackathonId]: gate }));
       showToast(
         'success',
         'Attendance Window Updated',
@@ -116,7 +130,6 @@ export const AdminAttendancePage: React.FC = () => {
 
     try {
       if (currentAttended) {
-        updateRegistrationStatus(registrationId, 'TEAM_CONFIRMED');
         await attendanceService.manualAttendanceOverride(
           reg.hackathonId,
           reg.studentId,
@@ -125,7 +138,6 @@ export const AdminAttendancePage: React.FC = () => {
         );
         showToast('info', 'Status Updated', 'Student attendance reverted to pending.');
       } else {
-        updateRegistrationStatus(registrationId, 'ATTENDED');
         await attendanceService.manualAttendanceOverride(
           reg.hackathonId,
           reg.studentId,
@@ -139,40 +151,41 @@ export const AdminAttendancePage: React.FC = () => {
     }
   };
 
-  const handleExportCsv = () => {
-    const headers = [
-      'Registration ID',
-      'Student Name',
-      'Register No',
-      'Department',
-      'Hackathon',
-      'Attendance Status',
-      'Checked-in Time'
-    ];
+  const handleExportExcel = () => {
     const rows = filteredRegistrations.map((r) => {
       const s = students.find((st) => st.uid === r.studentId);
-      const h = hackathons.find((hk) => hk.id === r.hackathonId);
-      const isPresent = Boolean(r.attendedAt) || r.status === 'ATTENDED';
-      return [
-        r.registrationNumber,
-        `"${s?.name || 'Registered Student'}"`,
-        s?.registerNumber || 'N/A',
-        `"${s?.department || 'Engineering'}"`,
-        `"${h?.title || 'Unknown'}"`,
-        isPresent ? 'PRESENT' : 'ABSENT',
-        r.attendedAt ? new Date(r.attendedAt).toLocaleString() : 'N/A'
-      ].join(',');
+      const hackathon = resolveHackathonReference(r.hackathonId, hackathons);
+      const isPresent = r.attendanceStatus === 'PRESENT' || Boolean(r.attendedAt) || r.status === 'ATTENDED';
+      return {
+        registrationId: r.registrationNumber || r.id,
+        studentName: s?.name || 'Unresolved student',
+        registerNumber: s?.registerNumber || '',
+        department: s?.department || r.department || 'Unassigned',
+        hackathonName: hackathon.name,
+        hackathonId: hackathon.id,
+        hackathonReferenceStatus: hackathon.status,
+        attendanceStatus: isPresent ? 'PRESENT' : 'ABSENT',
+        checkedInTime: r.attendedAt || ''
+      };
     });
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `KIT_Hackathon_Attendance_Roster_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('info', 'Export Successful', 'Downloaded attendance roster.');
+    downloadExcelWorkbook({
+      sheetName: 'Attendance',
+      title: `Attendance report — ${getHackathonReportTitle(selectedHackathonId, hackathons)}`,
+      fileName: `hackhub-attendance-${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { header: 'Registration ID', key: 'registrationId' },
+        { header: 'Student Name', key: 'studentName' },
+        { header: 'Registration Number', key: 'registerNumber' },
+        { header: 'Department', key: 'department' },
+        { header: 'Hackathon Name', key: 'hackathonName' },
+        { header: 'Hackathon ID', key: 'hackathonId' },
+        { header: 'Hackathon Reference Status', key: 'hackathonReferenceStatus' },
+        { header: 'Attendance Status', key: 'attendanceStatus' },
+        { header: 'Checked-in Time', key: 'checkedInTime' }
+      ],
+      rows
+    });
+    showToast('info', 'Export Successful', 'Downloaded the filtered attendance report as Excel.');
   };
 
   return (
@@ -187,10 +200,10 @@ export const AdminAttendancePage: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={handleExportCsv}
+            onClick={handleExportExcel}
             leftIcon={<Download className="w-3.5 h-3.5" />}
           >
-            Export Attendance CSV
+            Export Attendance Excel
           </Button>
         }
       />
@@ -278,12 +291,12 @@ export const AdminAttendancePage: React.FC = () => {
                   </div>
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                      hackathon.attendanceOpen
+                      attendanceGates[hackathon.id]?.attendanceOpen
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                         : 'bg-slate-100 text-slate-600 border border-slate-200'
                     }`}
                   >
-                    {hackathon.attendanceOpen ? 'Check-in Open' : 'Check-in Closed'}
+                    {attendanceGates[hackathon.id]?.attendanceOpen ? 'Check-in Open' : 'Check-in Closed'}
                   </span>
                 </div>
 
@@ -324,13 +337,13 @@ export const AdminAttendancePage: React.FC = () => {
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] text-slate-400 font-medium">Passcode:</span>
-                  {hackathon.attendanceCode ? (
+                  {attendanceGates[hackathon.id]?.attendanceCode ? (
                     <button
-                      onClick={() => handleCopyPasscode(hackathon.id, hackathon.attendanceCode!)}
+                      onClick={() => handleCopyPasscode(hackathon.id, attendanceGates[hackathon.id].attendanceCode)}
                       className="flex items-center gap-1 font-mono text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded hover:bg-blue-100 transition-colors"
                       title="Click to copy venue passcode"
                     >
-                      <span>{hackathon.attendanceCode}</span>
+                      <span>{attendanceGates[hackathon.id].attendanceCode}</span>
                       {copiedCodeId === hackathon.id ? (
                         <Check className="w-3 h-3 text-emerald-600" />
                       ) : (
@@ -344,11 +357,11 @@ export const AdminAttendancePage: React.FC = () => {
 
                 <Button
                   size="sm"
-                  variant={hackathon.attendanceOpen ? 'danger' : 'secondary'}
-                  onClick={() => handleToggleAttendanceOpen(hackathon.id, Boolean(hackathon.attendanceOpen))}
+                  variant={attendanceGates[hackathon.id]?.attendanceOpen ? 'danger' : 'secondary'}
+                  onClick={() => handleToggleAttendanceOpen(hackathon.id, Boolean(attendanceGates[hackathon.id]?.attendanceOpen))}
                   className="text-[10px] py-1 px-2.5 h-auto"
                 >
-                  {hackathon.attendanceOpen ? 'Disable Check-in' : 'Enable Check-in'}
+                  {attendanceGates[hackathon.id]?.attendanceOpen ? 'Disable Check-in' : 'Enable Check-in'}
                 </Button>
               </div>
             </div>

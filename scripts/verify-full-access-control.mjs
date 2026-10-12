@@ -147,21 +147,22 @@ assert(
 );
 
 // ========================================================================
-// SECTION 3: HOD & DEPARTMENT APPROVER ROLE POLICIES
+// SECTION 3: DEPARTMENT APPROVER & DEPARTMENT ADMIN POLICIES
 // ========================================================================
-console.log('\n--- SECTION 3: HOD Oversight & Department Approver Delegation ---');
+console.log('\n--- SECTION 3: Department Approver & Department Admin Delegation ---');
 
 const adminServiceCode = fs.readFileSync('src/services/adminService.ts', 'utf8');
 
 assert(
   adminServiceCode.includes('toggleDepartmentApprover(adminId: string, isApprover: boolean)') &&
-  adminServiceCode.includes('currentUser.role !== \'HOD\'') &&
-  adminServiceCode.includes('target.approvalStatus !== \'APPROVED\''),
-  'Only HOD can designate or revoke Department Approvers, and only for approved staff'
+  adminServiceCode.includes('isPlatformAdministrator(currentUser)') &&
+  adminServiceCode.includes('target.approvalStatus !== \'APPROVED\'') &&
+  adminServiceCode.includes('Self-assignment violation: Administrators cannot alter their own approver status.'),
+  'Only a platform administrator can designate another approved faculty member as a Department Approver'
 );
 
 assert(
-  adminServiceCode.includes('if (!isHod && targetAdminData.department !== approverDept)') &&
+  adminServiceCode.includes('targetAdminData.department !== approverDept') &&
   adminServiceCode.includes('Department boundary error: As the'),
   'Department approver is strictly forbidden from approving/rejecting applicants outside their own department'
 );
@@ -169,7 +170,7 @@ assert(
 assert(
   adminServiceCode.includes('if (currentUser.uid === adminId)') &&
   adminServiceCode.includes('Self-approval violation: Administrators cannot approve their own application'),
-  'Self-approval is explicitly blocked for all roles including HOD and Department Approver'
+  'Self-approval is explicitly blocked for all roles including Department Approver and Administrator'
 );
 
 assert(
@@ -193,7 +194,7 @@ assert(
 
 const adminRegsCode = fs.readFileSync('src/pages/admin/AdminRegistrationsPage.tsx', 'utf8');
 assert(
-  adminRegsCode.includes('if (!isHod && facultyDept)') &&
+  adminRegsCode.includes('if (facultyDept)') &&
   adminRegsCode.includes('if (student && student.department !== facultyDept) return false;') &&
   adminRegsCode.includes('normalizedAuthorizedYears.includes(normY)'),
   'AdminRegistrationsPage restricts registration roster to authorized department and academic years'
@@ -209,7 +210,7 @@ assert(
 
 const adminTeamsCode = fs.readFileSync('src/pages/admin/AdminTeamsPage.tsx', 'utf8');
 assert(
-  adminTeamsCode.includes('if (!isHod && facultyDept)') &&
+  adminTeamsCode.includes('if (facultyDept)') &&
   adminTeamsCode.includes('teamDept !== facultyDept'),
   'AdminTeamsPage isolates team roster and disband actions to authorized faculty department'
 );
@@ -228,16 +229,18 @@ assert(
 );
 
 assert(
-  studentAuthApi.includes("studentData.accountStatus === 'disabled' || studentData.isActive === false") &&
-  studentAuthApi.includes('Account is disabled or pending administrative verification'),
-  'Disabled or unapproved student accounts are denied protected session tokens'
+  studentAuthApi.includes("studentData.accountStatus === 'disabled' || studentData.accountStatus === 'deactivated' || studentData.isActive === false") &&
+  studentAuthApi.includes("status: 403") &&
+  studentAuthApi.indexOf('Only administrator-provisioned student profiles may use the student portal.') < studentAuthApi.indexOf('idToken: authData.idToken'),
+  'Disabled student accounts and accounts without provisioned profiles do not receive a protected session token'
 );
 
 assert(
   adminServiceCode.includes('provisionStudent(studentInfo:') &&
-  adminServiceCode.includes('if (!isSupportedDepartment(cleanDept))') &&
-  adminServiceCode.includes('!isHod && cleanDept !== adminDept'),
-  'Student provisioning is strictly restricted to authorized department coordinators or HOD'
+  adminServiceCode.includes("action: 'provision-student'") &&
+  studentAuthApi.includes("verifyServerRequest(authHeader, 'STAFF')") &&
+  studentAuthApi.includes("actor.role !== 'ADMIN' && (!actor.department || department !== actor.department)"),
+  'Student provisioning is restricted to authenticated staff and department-scoped faculty'
 );
 
 // ========================================================================
@@ -256,8 +259,7 @@ assert(
 
 assert(
   firestoreRules.includes('match /reg_lookups/{regNo}') &&
-  firestoreRules.includes('allow get: if isAdmin();') &&
-  firestoreRules.includes('allow list: if false;'),
+  firestoreRules.includes('allow get, list, write: if false;'),
   'reg_lookups collection forbids public directory queries and harvesting'
 );
 

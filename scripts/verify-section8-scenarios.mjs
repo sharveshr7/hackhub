@@ -1,14 +1,14 @@
 /**
- * HackHub — Section 8 Comprehensive Scenario Verification Suite
+ * HackHub — Comprehensive Department-Level Scenario Verification Suite
  * 
- * Explicitly tests all 11 required scenarios from the prompt:
+ * Explicitly tests all required scenarios from the prompt:
  * 1. Biotechnology faculty can manage authorized Biotechnology events.
  * 2. Biotechnology faculty cannot access private Biomedical Engineering records.
  * 3. Biomedical Engineering faculty can manage authorized Biomedical Engineering events.
  * 4. Biomedical Engineering faculty cannot access private Biotechnology records.
  * 5. A department approver cannot approve applicants from another department.
  * 6. Regular faculty cannot approve themselves or grant privileged roles.
- * 7. HOD retains institution-level oversight.
+ * 7. Complete HOD elimination & pure department-level isolation.
  * 8. Public users cannot read draft events or private student records.
  * 9. Existing event publishing and student participation workflows continue working.
  * 10. Unsupported or missing department values are rejected or flagged for review.
@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 
 console.log('========================================================================');
-console.log('  HACKHUB — SECTION 8 SCENARIO VERIFICATION TEST SUITE');
+console.log('  HACKHUB — DEPARTMENT SCENARIO & ACCESS CONTROL TEST SUITE');
 console.log('========================================================================\n');
 
 let passedTests = 0;
@@ -43,8 +43,7 @@ const hackathonServiceCode = fs.readFileSync('src/services/hackathonService.ts',
 const firestoreRules = fs.readFileSync('firestore.rules', 'utf8');
 
 assert(
-  hackathonServiceCode.includes('if (!isHod)') &&
-  hackathonServiceCode.includes('dept = userDept;') &&
+  hackathonServiceCode.includes('const dept = platformAdmin ? data.department : userDept;') &&
   hackathonServiceCode.includes('You can only edit events within your department scope') &&
   hackathonServiceCode.includes('You can only delete events within your department scope'),
   'Scenario 1 & 3 (Client): Faculty is strictly locked to their own department when creating, editing, or deleting events'
@@ -66,13 +65,12 @@ const adminSubsCode = fs.readFileSync('src/pages/admin/AdminSubmissionsPage.tsx'
 const adminTeamsCode = fs.readFileSync('src/pages/admin/AdminTeamsPage.tsx', 'utf8');
 
 assert(
-  adminStudentsCode.includes('if (isHod) return students;') &&
   adminStudentsCode.includes('if (facultyDept && s.department !== facultyDept) return false;'),
   'Scenario 2 & 4 (Students): Biotechnology faculty cannot view Biomedical Engineering private student records (and vice versa)'
 );
 
 assert(
-  adminRegsCode.includes('if (!isHod && facultyDept)') &&
+  adminRegsCode.includes('if (facultyDept)') &&
   adminRegsCode.includes('if (student && student.department !== facultyDept) return false;'),
   'Scenario 2 & 4 (Registrations): Registrations table isolates records to faculty authorized department'
 );
@@ -96,7 +94,7 @@ console.log('\n--- SCENARIO 5: Department Approver Scoped Authority ---');
 const adminServiceCode = fs.readFileSync('src/services/adminService.ts', 'utf8');
 
 assert(
-  adminServiceCode.includes('if (!isHod && targetAdminData.department !== approverDept)') &&
+  adminServiceCode.includes('targetAdminData.department !== approverDept') &&
   adminServiceCode.includes('Department boundary error: As the') &&
   adminServiceCode.includes('approver, you cannot approve applicants from'),
   'Scenario 5: Department approvers are strictly blocked from approving or rejecting applicants outside their department'
@@ -121,21 +119,29 @@ assert(
 );
 
 // ------------------------------------------------------------------------
-// SCENARIO 7: HOD retains institution-level oversight
+// SCENARIO 7: Complete HOD elimination & pure department-level isolation
 // ------------------------------------------------------------------------
-console.log('\n--- SCENARIO 7: HOD Institution-Level Oversight ---');
+console.log('\n--- SCENARIO 7: Total HOD Elimination & Pure Department Isolation ---');
+const appTsx = fs.readFileSync('src/App.tsx', 'utf8');
 const adminDashboardCode = fs.readFileSync('src/pages/admin/AdminDashboardPage.tsx', 'utf8');
 
 assert(
-  adminDashboardCode.includes("const [hodDeptFilter, setHodDeptFilter] = useState<'ALL' | 'Biotechnology' | 'Biomedical Engineering'>('ALL');") &&
-  adminDashboardCode.includes('if (isHod && activeDeptFilter === \'ALL\') return hackathons;'),
-  'Scenario 7 (Dashboard): HOD has cross-department oversight across Biotechnology and Biomedical Engineering'
+  !appTsx.includes('/hod') &&
+  !fs.existsSync('src/pages/hod') &&
+  !fs.existsSync('src/components/layout/HodLayout.tsx'),
+  'Scenario 7 (Routes & Pages): All HOD pages, layouts, and routes are completely removed'
 );
 
 assert(
-  firestoreRules.includes('function isHod()') &&
-  firestoreRules.includes("request.auth.token.role in ['HOD', 'hod']") || firestoreRules.includes("role in ['HOD', 'hod']"),
-  'Scenario 7 (Rules): Firestore security rules define privileged isHod() with institution-wide read/write authorities'
+  !firestoreRules.includes('function isHod()') &&
+  !firestoreRules.includes('isHod()'),
+  'Scenario 7 (Rules): Firestore rules have zero HOD privileges or cross-department exceptions'
+);
+
+assert(
+  adminDashboardCode.includes('const scopedHackathons = useMemo(() => {') &&
+  adminDashboardCode.includes('platformAdministrator ? hackathons : hackathons.filter((h) => h.department === facultyDept)'),
+  'Scenario 7 (Dashboard): Faculty are department scoped and platform administrators retain institution-wide scope'
 );
 
 // ------------------------------------------------------------------------
@@ -145,7 +151,7 @@ console.log('\n--- SCENARIO 8: Public Data Confidentiality ---');
 
 assert(
   firestoreRules.includes("(resource.data.status != 'DRAFT' && resource.data.status != 'draft')") &&
-  firestoreRules.includes('allow get: if isOwner(studentId) || ('),
+  firestoreRules.includes('allow get: if isOwner(studentId) || canReadStudent(resource.data);'),
   'Scenario 8: Draft hackathons are protected from public discovery, and student records require owner or authorized admin access'
 );
 
@@ -169,8 +175,7 @@ assert(
 // ------------------------------------------------------------------------
 console.log('\n--- SCENARIO 10: Department Validation & Flagging ---');
 const deptConstants = fs.readFileSync('src/constants/departments.ts', 'utf8');
-const hodApprovalsPage = fs.readFileSync('src/pages/hod/HodAdminApprovalsPage.tsx', 'utf8');
-const hodStudentsPage = fs.readFileSync('src/pages/hod/HodStudentsPage.tsx', 'utf8');
+const facultyApprovalsPage = fs.readFileSync('src/pages/admin/AdminFacultyApprovalsPage.tsx', 'utf8');
 
 assert(
   deptConstants.includes("export const SUPPORTED_DEPARTMENTS = [") &&
@@ -181,9 +186,9 @@ assert(
 );
 
 assert(
-  hodApprovalsPage.includes('Cannot approve applicant with unsupported department') &&
-  hodStudentsPage.includes('Needs Review'),
-  'Scenario 10 (UI): Unsupported departments block approval and surface "Needs Review" badges for admin oversight'
+  facultyApprovalsPage.includes('!isSupportedDepartment(admin.department)') &&
+  facultyApprovalsPage.includes('canApprove'),
+  'Scenario 10 (UI): Unsupported departments block approval and enforce departmental boundaries'
 );
 
 // ------------------------------------------------------------------------

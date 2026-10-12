@@ -1,47 +1,82 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-
     function isAuthenticated() {
       return request.auth != null && request.auth.uid != null;
     }
 
-    function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.role == 'admin' ||
-        request.auth.token.role == 'ADMIN' ||
-        request.auth.token.role == 'HOD' ||
-        request.auth.token.role == 'hod' ||
-        request.auth.token.admin == true ||
-        request.auth.token.hod == true
+    function adminPath() {
+      return /databases/(default)/documents/admins/$(request.auth.uid);
+    }
+
+    function adminData() {
+      return firestore.get(adminPath()).data;
+    }
+
+    function isStaff() {
+      return isAuthenticated() && firestore.exists(adminPath()) &&
+        adminData().approvalStatus == 'APPROVED' &&
+        adminData().isActive != false &&
+        adminData().accountStatus != 'deactivated' &&
+        adminData().role in ['ADMIN', 'FACULTY', 'admin', 'faculty'];
+    }
+
+    function isPlatformAdmin() {
+      return isStaff() && adminData().isPlatformAdmin == true;
+    }
+
+    function canAccessScope(department, academicYear) {
+      return isPlatformAdmin() || (
+        isStaff() && department == adminData().department &&
+        (!('authorizedYears' in adminData()) || adminData().authorizedYears.size() == 0 || academicYear in adminData().authorizedYears)
       );
     }
 
-    // Hackathon banners and public marketing assets
+    function teamPath(teamId) {
+      return /databases/(default)/documents/teams/$(teamId);
+    }
+
+    function teamData(teamId) {
+      return firestore.get(teamPath(teamId)).data;
+    }
+
+    function isTeamMember(teamId) {
+      return isAuthenticated() && firestore.exists(teamPath(teamId)) &&
+        (teamData(teamId).leaderId == request.auth.uid ||
+          (teamData(teamId).memberIds is list && request.auth.uid in teamData(teamId).memberIds));
+    }
+
+    // Hackathon banners are public; only scoped staff can change them.
     match /hackathons/{hackathonId}/{allPaths=**} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isStaff() && (
+        isPlatformAdmin() ||
+        (firestore.exists(/databases/(default)/documents/hackathons/$(hackathonId)) &&
+          firestore.get(/databases/(default)/documents/hackathons/$(hackathonId)).data.department == adminData().department)
+      );
     }
 
-    // Team submission files (.pdf, .pptx, .zip, .mp4, demo videos - max 60MB)
+    // Submission files are private to the team and its authorized department staff.
     match /submissions/{teamId}/{allPaths=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() &&
+      allow read: if isTeamMember(teamId) || (
+        isStaff() && firestore.exists(teamPath(teamId)) &&
+        canAccessScope(teamData(teamId).department, teamData(teamId).academicYear)
+      );
+      allow create, update: if isTeamMember(teamId) &&
         request.resource.size < 60 * 1024 * 1024;
-      allow delete: if isAdmin();
+      allow delete: if isStaff() && firestore.exists(teamPath(teamId)) &&
+        canAccessScope(teamData(teamId).department, teamData(teamId).academicYear);
     }
 
-    // Student avatars (images only, max 5MB)
+    // Students may manage only their own avatar files.
     match /avatars/{userId}/{allPaths=**} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() &&
-        request.auth.uid == userId &&
-        request.resource.size < 5 * 1024 * 1024 &&
-        request.resource.contentType.matches('image/.*');
-      allow delete: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow read, write, delete: if isAuthenticated() && request.auth.uid == userId &&
+        (request.resource == null || (
+          request.resource.size < 5 * 1024 * 1024 &&
+          request.resource.contentType.matches('image/.*')
+        ));
     }
 
-    // Catch-all denies unauthorized access
     match /{allPaths=**} {
       allow read, write: if false;
     }

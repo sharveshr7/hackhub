@@ -4,6 +4,7 @@ import { useAppStore } from '../../lib/store';
 import { EmptyState } from '../../components/common/EmptyState';
 import { PageHeader } from '../../components/common/PageHeader';
 import { OpportunityCard } from '../../components/discovery/OpportunityCard';
+import { isStaffRole } from '../../utils/access';
 import {
   Search,
   Filter,
@@ -67,7 +68,7 @@ export const HackathonsPage: React.FC = () => {
 
   const filteredHackathons = useMemo(() => {
     const baseList =
-      currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD'
+      isStaffRole(currentUser?.role)
         ? hackathons
         : hackathons.filter((h) => String(h.status).toUpperCase() !== 'DRAFT');
 
@@ -191,7 +192,7 @@ export const HackathonsPage: React.FC = () => {
           </span>
         }
         actions={
-          currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD' ? (
+          isStaffRole(currentUser?.role) ? (
             <Link
               to="/admin/hackathons/create"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors"

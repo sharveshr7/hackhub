@@ -1,4 +1,4 @@
-import { db, storage } from '../lib/firebase';
+import { db, storage, auth } from '../lib/firebase';
 import {
   collection,
   getDocs,
@@ -14,6 +14,8 @@ import {
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useAppStore } from '../lib/store';
 import { Hackathon, HackathonStatus } from '../types';
+import { isPlatformAdministrator, isStaffRole } from '../utils/access';
+import { sanitizeHackathonDocument } from '../utils/hackathonData';
 
 export const hackathonService = {
   /**
@@ -21,15 +23,21 @@ export const hackathonService = {
    */
   async getAllHackathons(): Promise<Hackathon[]> {
     const currentUser = useAppStore.getState().currentUser;
-    const q =
-      currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD'
-        ? collection(db, 'hackathons')
-        : query(collection(db, 'hackathons'), where('status', '!=', 'DRAFT'));
-    const snap = await getDocs(q);
-    const hackathons = snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data()
-    })) as Hackathon[];
+    const discoverableStatuses: HackathonStatus[] = [
+      'PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'ONGOING', 'COMPLETED', 'REGISTRATION_CLOSED', 'LIVE', 'CANCELLED', 'SUBMISSION_CLOSED',
+      'published', 'registration_open', 'upcoming', 'ongoing', 'completed', 'registration_closed', 'live', 'cancelled', 'submission_closed'
+    ];
+    const snapshots = isPlatformAdministrator(currentUser)
+      ? [await getDocs(collection(db, 'hackathons'))]
+      : await Promise.all([
+          getDocs(query(collection(db, 'hackathons'), where('status', 'in', discoverableStatuses))),
+          ...(isStaffRole(currentUser?.role) && currentUser?.adminData?.department
+            ? [getDocs(query(collection(db, 'hackathons'), where('department', '==', currentUser.adminData.department)))]
+            : [])
+        ]);
+    const byId = new Map<string, Hackathon>();
+    snapshots.forEach((snap) => snap.docs.forEach((document) => byId.set(document.id, sanitizeHackathonDocument(document.id, document.data()))));
+    const hackathons = [...byId.values()];
     
     // Sync into store for state management
     useAppStore.setState({ hackathons });
@@ -42,7 +50,7 @@ export const hackathonService = {
   async getHackathonById(id: string): Promise<Hackathon | null> {
     const docSnap = await getDoc(doc(db, 'hackathons', id));
     if (!docSnap.exists()) return null;
-    return { id: docSnap.id, ...docSnap.data() } as Hackathon;
+    return sanitizeHackathonDocument(docSnap.id, docSnap.data());
   },
 
   /**
@@ -64,25 +72,15 @@ export const hackathonService = {
     const id = `hackathon-${Date.now()}`;
     let bannerUrl = data.bannerUrl || '';
 
-    if (bannerFile) {
-      try {
-        bannerUrl = await this.uploadBanner(id, bannerFile);
-      } catch (err) {
-        console.warn('Banner upload failed, proceeding with default banner:', err);
-      }
-    }
-
     const currentUser = useAppStore.getState().currentUser;
-    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-    let dept = data.department;
-    if (!isHod) {
-      const userDept = currentUser?.adminData?.department;
-      if (!userDept) {
-        throw new Error('Unauthorized: Your profile must have an assigned department to publish events.');
-      }
-      dept = userDept;
-    } else if (!dept) {
-      dept = 'ALL';
+    const userDept = currentUser?.adminData?.department;
+    const platformAdmin = isPlatformAdministrator(currentUser);
+    const dept = platformAdmin ? data.department : userDept;
+    if (!dept || (platformAdmin && !['Biotechnology', 'Biomedical Engineering'].includes(dept))) {
+      throw new Error('Select a supported department for this hackathon.');
+    }
+    if (!platformAdmin && !userDept) {
+      throw new Error('Unauthorized: Your profile must have an assigned department to publish events.');
     }
 
     const now = new Date().toISOString();
@@ -104,6 +102,17 @@ export const hackathonService = {
       updatedAt: serverTimestamp()
     });
 
+    if (bannerFile) {
+      try {
+        bannerUrl = await this.uploadBanner(id, bannerFile);
+        await updateDoc(doc(db, 'hackathons', id), { bannerUrl, updatedAt: serverTimestamp() });
+        newHackathon.bannerUrl = bannerUrl;
+      } catch {
+        await deleteDoc(doc(db, 'hackathons', id)).catch(() => undefined);
+        throw new Error('The hackathon was not created because its banner could not be uploaded. Try again without the banner or choose another file.');
+      }
+    }
+
     // Update in-memory store
     useAppStore.getState().addHackathon(newHackathon);
     return newHackathon;
@@ -114,20 +123,18 @@ export const hackathonService = {
    */
   async updateHackathon(id: string, updates: Partial<Hackathon>): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-    if (!isHod && currentUser?.adminData?.department) {
-      const existing = useAppStore.getState().hackathons.find((h) => h.id === id);
-      if (
-        existing &&
-        existing.department &&
-        existing.department !== 'ALL' &&
-        existing.department !== currentUser.adminData.department &&
-        existing.publishedBy !== currentUser.uid
-      ) {
-        throw new Error(
-          `Unauthorized: You can only edit events within your department scope (${currentUser.adminData.department}).`
-        );
-      }
+    const userDept = currentUser?.adminData?.department;
+    const existing = useAppStore.getState().hackathons.find((h) => h.id === id);
+    if (
+      !isPlatformAdministrator(currentUser) &&
+      existing &&
+      existing.department &&
+      existing.department !== userDept &&
+      existing.publishedBy !== currentUser?.uid
+    ) {
+      throw new Error(
+        `Unauthorized: You can only edit events within your department scope (${userDept}).`
+      );
     }
 
     await updateDoc(doc(db, 'hackathons', id), {
@@ -142,15 +149,12 @@ export const hackathonService = {
    */
   async deleteHackathon(id: string): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-    if (!isHod) {
-      const existing = useAppStore.getState().hackathons.find((h) => h.id === id);
-      const userDept = currentUser?.adminData?.department;
-      if (existing && existing.department !== userDept && existing.publishedBy !== currentUser?.uid) {
-        throw new Error(
-          `Unauthorized: You can only delete events within your department scope (${userDept}).`
-        );
-      }
+    const existing = useAppStore.getState().hackathons.find((h) => h.id === id);
+    const userDept = currentUser?.adminData?.department;
+    if (!isPlatformAdministrator(currentUser) && existing && existing.department !== userDept && existing.publishedBy !== currentUser?.uid) {
+      throw new Error(
+        `Unauthorized: You can only delete events within your department scope (${userDept}).`
+      );
     }
     await deleteDoc(doc(db, 'hackathons', id));
     useAppStore.getState().deleteHackathon(id);
@@ -166,9 +170,29 @@ export const hackathonService = {
   /**
    * Toggle attendance gate check-in
    */
-  async toggleAttendance(id: string, isOpen: boolean, securityCode?: string): Promise<void> {
-    const updates: Partial<Hackathon> = { attendanceOpen: isOpen };
-    if (securityCode) updates.attendanceCode = securityCode;
-    await this.updateHackathon(id, updates);
+  async getAttendanceGate(id: string): Promise<{ attendanceOpen: boolean; attendanceCode: string }> {
+    const idToken = await auth.currentUser?.getIdToken();
+    if (!idToken) throw new Error('Sign in before viewing the attendance gate.');
+    const response = await fetch('/api/student-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ action: 'get-attendance-gate', hackathonId: id })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || 'Attendance gate could not be loaded.');
+    return { attendanceOpen: data.attendanceOpen === true, attendanceCode: data.attendanceCode || '' };
+  },
+
+  async toggleAttendance(id: string, isOpen: boolean): Promise<{ attendanceOpen: boolean; attendanceCode: string }> {
+    const idToken = await auth.currentUser?.getIdToken();
+    if (!idToken) throw new Error('Sign in before changing the attendance gate.');
+    const response = await fetch('/api/student-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ action: 'toggle-attendance', hackathonId: id, isOpen })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.success) throw new Error(data.error || 'Attendance gate could not be changed.');
+    return { attendanceOpen: data.attendanceOpen === true, attendanceCode: data.attendanceCode || '' };
   }
 };

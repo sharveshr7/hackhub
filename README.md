@@ -1,4 +1,4 @@
-# HackHub — College Hackathon Posting, Monitoring & Student Participation Management System
+# HackHub — College Hackathon Monitoring & Student Participation Management System
 
 A centralized college platform where faculty publish hackathon opportunities and monitor participation while students discover competitions, manage registrations, collaborate with teams, track deadlines, and showcase their project submissions.
 
@@ -33,11 +33,11 @@ HackHub manages collegiate hackathon participation lifecycle across institutiona
 - **Core**: React 19, TypeScript, Vite
 - **Styling**: Tailwind CSS (Tailwind 3.4), Custom collegiate design tokens (Deep Navy, Electric Cyan, Royal Blue)
 - **Routing**: React Router v7 (`react-router-dom`)
-- **State & Local Persistence**: Zustand with `persist` local cache
+- **State**: Zustand populated from live, role-scoped Firebase listeners; private records are not persisted between sessions
 - **Charts & Data Visualizations**: Recharts
 - **Icons**: Lucide React
 - **Celebration Effects**: Canvas Confetti
-- **Backend / Cloud Services**: Firebase Web SDK (Auth, Firestore, Cloud Storage, Firebase Cloud Messaging)
+- **Backend / Cloud Services**: Firebase Web SDK (Auth, Firestore, Cloud Storage) and Firebase Admin SDK server APIs deployed as Vercel Serverless Functions
 
 ---
 
@@ -52,7 +52,6 @@ src/
 │   │   ├── Card.tsx                # Subtle shadow and border elevation cards
 │   │   ├── ConfirmDialog.tsx       # Modals for destructive actions & final locks
 │   │   ├── Countdown.tsx           # Live countdown clocks for deadlines and starts
-│   │   ├── DemoAccountBanner.tsx   # Top telemetry bar for 1-click persona switching
 │   │   ├── EmptyState.tsx          # Zero-data state views
 │   │   ├── FileUpload.tsx          # Drag & drop upload with file preview
 │   │   ├── Input.tsx               # Input, Textarea, and Select components
@@ -69,12 +68,11 @@ src/
 ├── lib/
 │   ├── firebase/
 │   │   └── config.ts               # Isolated Firebase SDK init & offline fallback detector
-│   ├── mockData.ts                 # Realistic initial seed data for college hackathons
-│   └── store.ts                    # Zustand reactive state store with local persistence
+│   └── store.ts                    # Zustand state store hydrated from Firebase
 ├── pages/
 │   ├── auth/
 │   │   ├── LoginPage.tsx           # Role selector portal
-│   │   ├── StudentLoginPage.tsx    # Student sign-in with 1-click credentials & Google SSO
+│   │   ├── StudentLoginPage.tsx    # Student sign-in with registration-number or email sign-in
 │   │   └── AdminLoginPage.tsx      # Verified faculty/convenor login
 │   ├── public/
 │   │   ├── LandingPage.tsx         # "Build. Innovate. Compete." showcase landing page
@@ -93,19 +91,19 @@ src/
 │       ├── AdminHackathonsListPage.tsx # Hackathon lifecycle toggles & attendance gate
 │       ├── AdminCreateHackathonPage.tsx # Multi-field hackathon setup wizard
 │       ├── AdminHackathonDetailPage.tsx # Deep inspection of single hackathon & attendance
-│       ├── AdminRegistrationsPage.tsx # Participant roster, approval actions, CSV export
+│       ├── AdminRegistrationsPage.tsx # Participant roster, approval actions, Excel export
 │       ├── AdminTeamsPage.tsx      # Team squads roster, view members, disband action
 │       ├── AdminSubmissionsPage.tsx# Deliverables review, jury scoring, award honors
 │       ├── AdminStudentsPage.tsx   # Student directory, account active/disabled toggles
 │       ├── AdminAnnouncementsPage.tsx # Priority bulletins (Normal, Important, Critical)
-│       ├── AdminNotificationsPage.tsx # Trigger push broadcasts with presets
+│       ├── AdminNotificationsPage.tsx # Platform-wide in-app broadcasts with presets
 │       ├── AdminAnalyticsPage.tsx  # Interactive Recharts analytics & cohort rates
 │       └── AdminSettingsPage.tsx   # College portal settings & backend telemetry
 ├── services/
-│   ├── adminService.ts             # Admin analytics, metrics, student toggles, CSV generator
+│   ├── adminService.ts             # Admin analytics, metrics, student toggles, scoped export helpers
 │   ├── authService.ts              # Authentication service for student & admin
 │   ├── hackathonService.ts         # Hackathon CRUD and attendance gate toggles
-│   ├── notificationService.ts      # Announcements and in-app/FCM notifications
+│   ├── notificationService.ts      # Department announcements and in-app notifications
 │   ├── studentService.ts           # Student profile, registrations, and check-in
 │   ├── submissionService.ts        # Project submission drafts, final locks, and scoring
 │   └── teamService.ts              # Team formation, join codes, member limits
@@ -139,17 +137,6 @@ Sign In ➔ Explore Hackathons ➔ Register ➔ Participate ➔ Track Progress �
 
 ---
 
-## 🔑 Demo Test Personas
-
-The portal contains a **Top Persona Switcher Banner** for instant 1-click evaluation:
-
-| Persona | Role | Email | Password | Pre-configured State |
-| :--- | :--- | :--- | :--- | :--- |
-| **Alex Johnson** | `STUDENT` | `alex.johnson@ait.edu` | `password123` | Enrolled in *ApexHack 2026*, Leader of *ByteForce*, Attendance Confirmed, Submitted *SmartCampus Flow* |
-| **Dr. Sarah Jenkins** | `ADMIN` | `sarah.jenkins@ait.edu` | `adminpass456` | Hackathon Convenor & Dean, Full access to analytics, hackathon creation, approvals, and jury evaluation |
-
----
-
 ## 🚀 Running Locally
 
 ```bash
@@ -163,21 +150,21 @@ npm run dev
 npm run build
 ```
 
-The application runs locally on `http://localhost:5173/`.
+The application runs locally on `http://localhost:5173/`. Vite routes `/api/student-auth` to the server handler during development.
+
+For production, deploy the app to Vercel so `/api/student-auth` is served by `api/student-auth.ts` as a serverless function. Set the server environment variables in Vercel before deploying. Firebase Hosting serves the static frontend only in the current configuration; deploying there alone will not provide the `/api` endpoint.
 
 ---
 
-## 🌐 Connecting Real Firebase
+## Firebase setup and student onboarding
 
-When ready to link your Google Firebase project:
-1. Copy `.env.example` to `.env.local`
-2. Populate your Firebase configuration keys:
-```env
-VITE_FIREBASE_API_KEY=AIzaSy...
-VITE_FIREBASE_AUTH_DOMAIN=your-college-project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your-college-project
-VITE_FIREBASE_STORAGE_BUCKET=your-college-project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=1234567890
-VITE_FIREBASE_APP_ID=1:1234567890:web:...
-```
-When configured, `src/lib/firebase/config.ts` automatically switches from the persistent local demo cache to live Firebase Authentication, Cloud Firestore, Cloud Storage, and FCM!
+1. Copy `.env.example` to `.env.local` and enter the Firebase Web App configuration from your Firebase project settings. Keep service-account credentials out of `.env.local`, the browser build, and Git.
+2. In Firebase Authentication, enable Email/Password sign-in, add the deployed app domain under Authorized domains, and configure the password reset email template.
+3. Configure the server runtime with `FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY`, `COLLEGE_EMAIL_DOMAINS`, and a Firebase Admin service identity using the hosting provider's secret manager. Do not commit or share the service-account JSON.
+4. Provision the selected initial platform administrator with `npm run provision:admin -- --platform-admin --project <project-id> --email <admin-email> --dry-run`; remove `--dry-run` only after reviewing the target account and project. Choose a separate account if the candidate has a legacy HOD designation; the bootstrap script will not convert that designation into platform access.
+5. Review the legacy migrations in dry-run mode: `npm run migrate:staff-roles -- --project <project-id> --platform-admin-uid <admin-uid>` and `npm run migrate:attendance-gates -- --project <project-id>`. If the reported changes are correct, add `--apply` to each command. They retain existing documents, normalize staff roles, remove HOD claims, and move any public attendance codes into private gate documents.
+6. Deploy the Firestore rules, indexes, and Storage rules in `firebase.json` after reviewing and applying the migrations. Storage Rules read approved staff and team scope from Firestore; enable Firebase Storage to Firestore cross-service access when prompted.
+7. Deploy the web app to Vercel with `npx vercel --prod`; configure the Firebase Admin and college email-domain variables in the Vercel project settings first. Keep Firebase Hosting for the frontend only if you separately add an authenticated server runtime for `/api/student-auth`.
+8. Authorized department staff can add students from **Admin > Students**. Enter name, college email, registration number, department, and academic year. The server checks uniqueness, creates the Firebase Auth account without a plaintext password, links the Firestore profile, and sends the password setup email.
+
+The current student email-domain default is `kitcbe.com`; set `COLLEGE_EMAIL_DOMAINS` to the institution's actual email domains before enabling onboarding. Student registration numbers resolve only through the authenticated server endpoint.

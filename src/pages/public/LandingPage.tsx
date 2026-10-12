@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
+import { isStaffRole } from '../../utils/access';
 import { OpportunityCard } from '../../components/discovery/OpportunityCard';
 import { EmptyState } from '../../components/common/EmptyState';
 import {
@@ -77,7 +78,7 @@ export const LandingPage: React.FC = () => {
   const filteredOpportunities = useMemo(() => {
     // Only published hackathons for non-admin users
     const baseList =
-      currentUser?.role === 'ADMIN' || currentUser?.role === 'HOD'
+      isStaffRole(currentUser?.role)
         ? hackathons
         : hackathons.filter((h) => String(h.status).toUpperCase() !== 'DRAFT');
 

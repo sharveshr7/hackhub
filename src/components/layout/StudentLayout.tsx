@@ -63,7 +63,7 @@ export const StudentLayout: React.FC = () => {
   }
 
   if (currentUser.role !== 'STUDENT') {
-    return <Navigate to={currentUser.role === 'HOD' ? '/hod' : '/admin'} replace />;
+    return <Navigate to="/admin" replace />;
   }
 
   const student = currentUser.studentData;

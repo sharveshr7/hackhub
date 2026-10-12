@@ -44,13 +44,6 @@ import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAttendancePage } from './pages/admin/AdminAttendancePage';
 import { AdminFacultyApprovalsPage } from './pages/admin/AdminFacultyApprovalsPage';
 
-// HOD Pages & Layout
-import { HodLayout } from './components/layout/HodLayout';
-import { HodDashboardPage } from './pages/hod/HodDashboardPage';
-import { HodAdminApprovalsPage } from './pages/hod/HodAdminApprovalsPage';
-import { HodAdministratorsPage } from './pages/hod/HodAdministratorsPage';
-import { HodStudentsPage } from './pages/hod/HodStudentsPage';
-import { HodAuditLogPage } from './pages/hod/HodAuditLogPage';
 
 import { useAuth } from './hooks/useAuth';
 import { useFirestoreSync } from './hooks/useFirestoreSync';
@@ -108,15 +101,6 @@ export function App() {
             <Route path="settings" element={<AdminSettingsPage />} />
           </Route>
 
-          {/* HOD / Institutional Governance Routes */}
-          <Route path="/hod" element={<HodLayout />}>
-            <Route index element={<HodDashboardPage />} />
-            <Route path="admin-approvals" element={<HodAdminApprovalsPage />} />
-            <Route path="approvals" element={<HodAdminApprovalsPage />} />
-            <Route path="administrators" element={<HodAdministratorsPage />} />
-            <Route path="students" element={<HodStudentsPage />} />
-            <Route path="audit-log" element={<HodAuditLogPage />} />
-          </Route>
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

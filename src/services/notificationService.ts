@@ -1,31 +1,23 @@
 import { db } from '../lib/firebase';
 import {
-  collection,
-  getDocs,
-  query,
-  where,
   doc,
   setDoc,
-  updateDoc,
   writeBatch,
   serverTimestamp
 } from 'firebase/firestore';
 import { useAppStore } from '../lib/store';
-import { NotificationItem, Announcement } from '../types';
+import { NotificationItem } from '../types';
 import { announcementService } from './announcementService';
+import { isPlatformAdministrator } from '../utils/access';
 
 export const notificationService = {
   /**
    * Fetch notifications belonging to current user from Firestore
    */
   async getNotifications(userId?: string): Promise<NotificationItem[]> {
-    if (!userId) return [];
-    const q = query(collection(db, 'notifications'), where('userId', '==', userId));
-    const snap = await getDocs(q);
-    const notifications = snap.docs.map((d) => ({ id: d.id, ...d.data() } as NotificationItem));
-    
-    useAppStore.setState({ notifications });
-    return notifications;
+    const currentUser = useAppStore.getState().currentUser;
+    if (!userId || userId !== currentUser?.uid) return [];
+    return useAppStore.getState().notifications;
   },
 
   /**
@@ -34,6 +26,9 @@ export const notificationService = {
   async sendNotification(
     data: Omit<NotificationItem, 'id' | 'createdAt' | 'isRead'>
   ): Promise<void> {
+    if (!isPlatformAdministrator(useAppStore.getState().currentUser)) {
+      throw new Error('Only a platform administrator can publish campus-wide notifications.');
+    }
     const id = `notif_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
     const now = new Date().toISOString();
 
@@ -59,7 +54,13 @@ export const notificationService = {
    * Mark single notification as read
    */
   async markAsRead(id: string): Promise<void> {
-    await updateDoc(doc(db, 'notifications', id), { isRead: true });
+    const uid = useAppStore.getState().currentUser?.uid;
+    if (!uid) throw new Error('Sign in before updating notification status.');
+    await setDoc(doc(db, 'notification_reads', `${uid}_${id}`), {
+      uid,
+      notificationId: id,
+      readAt: serverTimestamp()
+    });
     useAppStore.getState().markNotificationAsRead(id);
   },
 
@@ -67,20 +68,19 @@ export const notificationService = {
    * Mark all notifications as read for current user
    */
   async markAllAsRead(userId?: string): Promise<void> {
-    if (userId) {
-      const q = query(
-        collection(db, 'notifications'),
-        where('userId', '==', userId),
-        where('isRead', '==', false)
-      );
-      const snap = await getDocs(q);
-      if (!snap.empty) {
-        const batch = writeBatch(db);
-        snap.docs.forEach((d) => {
-          batch.update(d.ref, { isRead: true });
+    const uid = useAppStore.getState().currentUser?.uid;
+    if (!uid || (userId && userId !== uid)) throw new Error('Sign in as this user before updating notification status.');
+    const unread = useAppStore.getState().notifications.filter((item) => !item.isRead);
+    for (let offset = 0; offset < unread.length; offset += 450) {
+      const batch = writeBatch(db);
+      unread.slice(offset, offset + 450).forEach((item) => {
+        batch.set(doc(db, 'notification_reads', `${uid}_${item.id}`), {
+          uid,
+          notificationId: item.id,
+          readAt: serverTimestamp()
         });
-        await batch.commit();
-      }
+      });
+      await batch.commit();
     }
     useAppStore.getState().markAllNotificationsAsRead();
   },

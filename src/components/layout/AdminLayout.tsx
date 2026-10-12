@@ -28,6 +28,7 @@ import {
   User,
   Plus
 } from 'lucide-react';
+import { isDepartmentApprover, isPlatformAdministrator, isStaffRole } from '../../utils/access';
 
 export const AdminLayout: React.FC = () => {
   const currentUser = useAppStore((state) => state.currentUser);
@@ -64,12 +65,12 @@ export const AdminLayout: React.FC = () => {
     );
   }
 
-  // Strict Security Check: Authenticated & Admin or HOD Role Required
+  // Strict Security Check: Authenticated Admin Role Required
   if (!currentUser) {
     return <Navigate to="/admin/login" state={{ from: location }} replace />;
   }
 
-  if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HOD') {
+  if (!isStaffRole(currentUser.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100 p-6">
         <div className="bg-white p-8 rounded-xl border border-rose-200 shadow-sm max-w-md text-center">
@@ -104,6 +105,19 @@ export const AdminLayout: React.FC = () => {
 
   const admin = currentUser.adminData;
 
+  const governanceItems: Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }> = [];
+  if (isDepartmentApprover(currentUser)) {
+    governanceItems.push({
+      to: '/admin/faculty-approvals',
+      label: 'Faculty Approvals',
+      icon: <Shield className="w-4 h-4" />,
+      badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined
+    });
+  }
+  if (isPlatformAdministrator(currentUser)) {
+    governanceItems.push({ to: '/admin/settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> });
+  }
+
   const navSections = [
     {
       title: 'OVERVIEW & POSTING',
@@ -126,7 +140,7 @@ export const AdminLayout: React.FC = () => {
       items: [
         { to: '/admin/submissions', label: 'Submissions', icon: <FolderGit2 className="w-4 h-4" /> },
         { to: '/admin/announcements', label: 'Announcements', icon: <Megaphone className="w-4 h-4" /> },
-        { to: '/admin/notifications', label: 'Notifications', icon: <BellRing className="w-4 h-4" /> }
+        ...(isPlatformAdministrator(currentUser) ? [{ to: '/admin/notifications', label: 'Notifications', icon: <BellRing className="w-4 h-4" /> }] : [])
       ]
     },
     {
@@ -138,17 +152,9 @@ export const AdminLayout: React.FC = () => {
     },
     {
       title: 'GOVERNANCE & ACCESS',
-      items: [
-        {
-          to: '/admin/faculty-approvals',
-          label: 'Faculty Approvals',
-          icon: <Shield className="w-4 h-4" />,
-          badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined
-        },
-        { to: '/admin/settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> }
-      ]
+      items: governanceItems
     }
-  ];
+  ].filter((section) => section.items.length > 0);
 
   const handleLogout = async () => {
     try {
@@ -366,22 +372,26 @@ export const AdminLayout: React.FC = () => {
                     </div>
 
                     <div className="py-1">
-                      <Link
-                        to="/admin/settings"
-                        onClick={() => setProfileDropdownOpen(false)}
-                        className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium"
-                      >
-                        <Settings className="w-3.5 h-3.5 text-slate-400" />
-                        <span>System Settings</span>
-                      </Link>
-                      <Link
-                        to="/admin/notifications"
-                        onClick={() => setProfileDropdownOpen(false)}
-                        className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium"
-                      >
-                        <BellRing className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Alerts & Notifications</span>
-                      </Link>
+                      {isPlatformAdministrator(currentUser) && (
+                        <>
+                          <Link
+                            to="/admin/settings"
+                            onClick={() => setProfileDropdownOpen(false)}
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium"
+                          >
+                            <Settings className="w-3.5 h-3.5 text-slate-400" />
+                            <span>System Settings</span>
+                          </Link>
+                          <Link
+                            to="/admin/notifications"
+                            onClick={() => setProfileDropdownOpen(false)}
+                            className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium"
+                          >
+                            <BellRing className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Alerts & Notifications</span>
+                          </Link>
+                        </>
+                      )}
                     </div>
 
                     <div className="pt-1 border-t border-slate-100">

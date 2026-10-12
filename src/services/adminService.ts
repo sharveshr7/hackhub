@@ -1,10 +1,4 @@
-import { db, firebaseConfig } from '../lib/firebase';
-import { initializeApp, deleteApp } from 'firebase/app';
-import {
-  getAuth,
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail
-} from 'firebase/auth';
+import { db, auth } from '../lib/firebase';
 import {
   collection,
   getDocs,
@@ -15,11 +9,13 @@ import {
   query,
   where,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { Registration, Student, Admin, RegistrationStatus, AuditLog } from '../types';
 import { analyticsService } from './analyticsService';
 import { useAppStore } from '../lib/store';
+import { isPlatformAdministrator } from '../utils/access';
 import {
   isSupportedDepartment,
   isValidSpecialization,
@@ -33,7 +29,17 @@ export const adminService = {
   getAnalyticsData: analyticsService.getAnalyticsData.bind(analyticsService),
 
   async getAllRegistrations(): Promise<Registration[]> {
-    const snap = await getDocs(collection(db, 'registrations'));
+    const currentUser = useAppStore.getState().currentUser;
+    if (!currentUser || !['ADMIN', 'FACULTY'].includes(currentUser.role)) throw new Error('Authorized staff access is required.');
+    const authorizedYears = (currentUser.adminData?.authorizedYears || []).map(normalizeAcademicYear).filter(Boolean) as string[];
+    const q = isPlatformAdministrator(currentUser)
+      ? collection(db, 'registrations')
+      : query(
+          collection(db, 'registrations'),
+          where('department', '==', currentUser.adminData?.department || ''),
+          ...(authorizedYears.length ? [where('academicYear', 'in', authorizedYears.slice(0, 10))] : [])
+        );
+    const snap = await getDocs(q);
     const registrations = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Registration));
     useAppStore.setState({ registrations });
     return registrations;
@@ -48,13 +54,31 @@ export const adminService = {
   },
 
   async getAllStudents(): Promise<Student[]> {
-    const snap = await getDocs(collection(db, 'students'));
+    const currentUser = useAppStore.getState().currentUser;
+    if (!currentUser || !['ADMIN', 'FACULTY'].includes(currentUser.role)) throw new Error('Authorized staff access is required.');
+    const authorizedYears = (currentUser.adminData?.authorizedYears || []).map(normalizeAcademicYear).filter(Boolean) as string[];
+    const q = isPlatformAdministrator(currentUser)
+      ? collection(db, 'students')
+      : query(
+          collection(db, 'students'),
+          where('department', '==', currentUser.adminData?.department || ''),
+          ...(authorizedYears.length ? [where('year', 'in', authorizedYears.slice(0, 10))] : [])
+        );
+    const snap = await getDocs(q);
     const students = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as Student));
     useAppStore.setState({ students });
     return students;
   },
 
   async toggleStudentAccountStatus(studentId: string, status: 'active' | 'disabled'): Promise<void> {
+    const currentUser = useAppStore.getState().currentUser;
+    const student = useAppStore.getState().students.find((entry) => entry.uid === studentId);
+    if (!currentUser || !['ADMIN', 'FACULTY'].includes(currentUser.role) || !student) {
+      throw new Error('Authorized access to this student record is required.');
+    }
+    if (!isPlatformAdministrator(currentUser) && student.department !== currentUser.adminData?.department) {
+      throw new Error('You can manage accounts only in your authorized department.');
+    }
     await updateDoc(doc(db, 'students', studentId), {
       accountStatus: status,
       isActive: status === 'active',
@@ -67,14 +91,19 @@ export const adminService = {
   },
 
   async getAllAdmins(): Promise<Admin[]> {
-    const snap = await getDocs(collection(db, 'admins'));
+    const currentUser = useAppStore.getState().currentUser;
+    if (!currentUser || !['ADMIN', 'FACULTY'].includes(currentUser.role)) throw new Error('Authorized staff access is required.');
+    const q = isPlatformAdministrator(currentUser)
+      ? collection(db, 'admins')
+      : query(collection(db, 'admins'), where('department', '==', currentUser.adminData?.department || ''));
+    const snap = await getDocs(q);
     const admins = snap.docs.map((d) => ({ uid: d.id, ...d.data() } as Admin));
     useAppStore.setState({ admins });
     return admins;
   },
 
   /**
-   * Provision a verified student account (Authorized Admin or HOD only)
+   * Provision a verified student account (Authorized Department Administrator only)
    * Creates Firebase Auth user, Firestore profile in students/{uid}, reg_lookups/{regNo},
    * dispatches password reset setup email, and writes to audit_logs.
    */
@@ -87,151 +116,46 @@ export const adminService = {
     phone?: string;
   }): Promise<{ uid: string; email: string; registerNumber: string }> {
     const currentUser = useAppStore.getState().currentUser;
-    if (!currentUser || (currentUser.role !== 'ADMIN' && currentUser.role !== 'HOD')) {
-      throw new Error('Unauthorized: Only authorized administrators or HOD can provision student accounts.');
+    if (!currentUser || !['ADMIN', 'FACULTY'].includes(currentUser.role)) {
+      throw new Error('Unauthorized: Only authorized administrators can provision student accounts.');
     }
 
-    const cleanName = studentInfo.name.trim();
-    const cleanRegNo = studentInfo.registerNumber.trim().toUpperCase().replace(/\s+/g, '');
-    const cleanEmail = studentInfo.email.trim().toLowerCase();
-    const cleanDept = studentInfo.department.trim();
-    const cleanYear = studentInfo.year.trim() || '1st Year';
-    const cleanPhone = (studentInfo.phone || '').trim();
-
-    if (!cleanName) throw new Error('Student full name is required.');
-    if (!cleanRegNo) throw new Error('Registration number is required.');
-    if (!cleanDept) throw new Error('Academic department is required.');
-
-    if (!isSupportedDepartment(cleanDept)) {
-      throw new Error(`Invalid department "${cleanDept}". HackHub strictly supports only Biotechnology and Biomedical Engineering.`);
+    if (!auth.currentUser || auth.currentUser.uid !== currentUser.uid) {
+      throw new Error('Your authenticated staff session could not be verified. Sign in again and retry.');
+    }
+    if (!studentInfo.department || !studentInfo.year) {
+      throw new Error('Select both a department and academic year.');
+    }
+    if (!isSupportedDepartment(studentInfo.department) || !SUPPORTED_ACADEMIC_YEARS.includes(normalizeAcademicYear(studentInfo.year) as any)) {
+      throw new Error('Select a supported department and academic year.');
     }
 
-    const isHod = currentUser.role === 'HOD' || currentUser.adminData?.isHod === true;
-    const adminDept = currentUser.adminData?.department;
-    if (!isHod && cleanDept !== adminDept) {
-      throw new Error(`Department authorization error: As a faculty member of ${adminDept}, you are only permitted to provision students for your own department.`);
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/student-auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        action: 'provision-student',
+        name: studentInfo.name,
+        registerNumber: studentInfo.registerNumber,
+        email: studentInfo.email,
+        department: studentInfo.department,
+        year: normalizeAcademicYear(studentInfo.year),
+        phone: studentInfo.phone || ''
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.error || 'Student provisioning failed. No account was reported as created.');
     }
-
-    // 1. Check uniqueness of registration number in reg_lookups
-    const lookupRef = doc(db, 'reg_lookups', cleanRegNo);
-    const lookupSnap = await getDoc(lookupRef);
-    if (lookupSnap.exists()) {
-      throw new Error(`Registration number "${cleanRegNo}" is already assigned to a student.`);
-    }
-
-    // 2. Check duplicate registration number in students collection
-    const regQuery = query(collection(db, 'students'), where('registerNumber', '==', cleanRegNo));
-    const regCheckSnap = await getDocs(regQuery);
-    if (!regCheckSnap.empty) {
-      throw new Error(`Registration number "${cleanRegNo}" is already assigned to an existing student profile.`);
-    }
-
-    // 3. Check duplicate email in students collection
-    const emailQuery = query(collection(db, 'students'), where('email', '==', cleanEmail));
-    const emailCheckSnap = await getDocs(emailQuery);
-    if (!emailCheckSnap.empty) {
-      throw new Error(`Email address "${cleanEmail}" is already registered to a student.`);
-    }
-
-    // 4. Create Firebase Authentication account in an isolated secondary app instance
-    // (This guarantees the current admin's active session is never overwritten in the browser)
-    const tempAppName = `Provision_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const tempApp = initializeApp(firebaseConfig, tempAppName);
-    const tempAuth = getAuth(tempApp);
-    const initialTempPassword = 'KIT#' + Math.random().toString(36).slice(2, 10) + '2026!';
-
-    let newUid: string;
-    try {
-      const userCred = await createUserWithEmailAndPassword(tempAuth, cleanEmail, initialTempPassword);
-      newUid = userCred.user.uid;
-
-      // Dispatch password setup / reset email directly to the student
-      try {
-        await sendPasswordResetEmail(tempAuth, cleanEmail);
-      } catch (resetErr: any) {
-        console.warn('[AdminService] Note on password setup email:', resetErr.message);
-      }
-    } catch (authErr: any) {
-      if (authErr.code === 'auth/email-already-in-use') {
-        throw new Error(`An account with email "${cleanEmail}" already exists in Firebase Authentication.`);
-      }
-      throw new Error(authErr.message || 'Failed to create student authentication account.');
-    } finally {
-      try {
-        await deleteApp(tempApp);
-      } catch (delAppErr) {
-        // ignore cleanup error
-      }
-    }
-
-    // 5. Create Firestore student profile at students/{newUid}
-    const studentRecord: Student = {
-      uid: newUid,
-      name: cleanName,
-      registerNumber: cleanRegNo,
-      registrationNumberNormalized: cleanRegNo,
-      email: cleanEmail,
-      phone: cleanPhone,
-      department: cleanDept,
-      year: cleanYear,
-      role: 'STUDENT',
-      accountStatus: 'active',
-      bio: 'Engineering student at KalaignarKarunanidhi Institute Of Technology.',
-      skills: [],
-      provisionedBy: currentUser.uid,
-      provisionedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    };
-
-    try {
-      await setDoc(doc(db, 'students', newUid), {
-        ...studentRecord,
-        isActive: true,
-        role: 'STUDENT'
-      });
-
-      // 6. Create registration lookup document for O(1) login resolution (sanitized: no name or uid stored)
-      await setDoc(lookupRef, {
-        email: cleanEmail,
-        createdAt: serverTimestamp()
-      });
-    } catch (firestoreErr: any) {
-      console.error('[AdminService] Student profile creation failed:', firestoreErr);
-      throw new Error('Failed to create student profile in database: ' + (firestoreErr.message || 'Permission denied'));
-    }
-
-    // 7. Write immutable audit log
-    const auditLogRef = doc(collection(db, 'audit_logs'));
-    const auditLogData: AuditLog = {
-      id: auditLogRef.id,
-      actorUid: currentUser.uid,
-      actorEmail: currentUser.email,
-      actorName: currentUser.adminData?.name || 'Administrator',
-      actorRole: currentUser.role,
-      targetUid: newUid,
-      targetEmail: cleanEmail,
-      targetName: cleanName,
-      action: 'STUDENT_PROVISIONED',
-      timestamp: serverTimestamp(),
-      details: {
-        registerNumber: cleanRegNo,
-        department: cleanDept,
-        year: cleanYear
-      }
-    };
-    await setDoc(auditLogRef, auditLogData);
-    useAppStore.getState().addAuditLog(auditLogData);
-
-    // 8. Update in-memory store
-    const existingStudents = useAppStore.getState().students;
-    useAppStore.getState().setStudents([studentRecord, ...existingStudents]);
-
-    return { uid: newUid, email: cleanEmail, registerNumber: cleanRegNo };
+    return { uid: result.uid, email: result.email, registerNumber: result.registerNumber };
   },
 
   /**
-   * Approve a pending faculty coordinator application (HOD or designated Department Approver)
+   * Approve a pending faculty coordinator application (Designated Department Approver only)
    */
   async approveFacultyAdmin(
     adminId: string,
@@ -239,12 +163,11 @@ export const adminService = {
     initialPermissions?: { authorizedYears?: string[]; authorizedClasses?: string[] }
   ): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
     const isDeptApprover = currentUser?.adminData?.isDepartmentApprover === true;
     const approverDept = currentUser?.adminData?.department;
 
-    if (!currentUser || (!isHod && !isDeptApprover)) {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) or an authorized Department Approver can approve faculty applications.');
+    if (!currentUser || !isDeptApprover || !approverDept) {
+      throw new Error('Unauthorized: Only an authorized Department Approver can approve faculty applications for their department.');
     }
 
     if (currentUser.uid === adminId) {
@@ -262,7 +185,7 @@ export const adminService = {
       throw new Error('This administrator is already approved.');
     }
 
-    if (!isHod && targetAdminData.department !== approverDept) {
+    if (targetAdminData.department !== approverDept) {
       throw new Error(
         `Department boundary error: As the ${approverDept} approver, you cannot approve applicants from ${targetAdminData.department || 'other departments'}.`
       );
@@ -277,7 +200,6 @@ export const adminService = {
       approvedAt: serverTimestamp(),
       approvedBy: approverName,
       approvedByUid: currentUser.uid,
-      role: 'ADMIN',
       isActive: true,
       updatedAt: serverTimestamp()
     };
@@ -298,7 +220,7 @@ export const adminService = {
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
       actorName: approverName,
-      actorRole: isHod ? 'HOD' : 'DEPT_APPROVER',
+      actorRole: 'DEPT_APPROVER',
       targetUid: adminId,
       targetEmail: targetAdminData.email,
       targetName: targetAdminData.name,
@@ -326,7 +248,7 @@ export const adminService = {
               approvalStatus: 'APPROVED',
               approvedBy: approverName,
               approvedAt: new Date().toISOString(),
-              role: 'ADMIN',
+              role: 'FACULTY',
               isActive: true,
               authorizedYears: cleanYears.length > 0 ? cleanYears : a.authorizedYears,
               authorizedClasses: initialPermissions?.authorizedClasses || a.authorizedClasses
@@ -337,16 +259,15 @@ export const adminService = {
   },
 
   /**
-   * Reject a pending faculty coordinator application (HOD or designated Department Approver)
+   * Reject a pending faculty coordinator application (Department Approver only)
    */
   async rejectFacultyAdmin(adminId: string, reason?: string): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
     const isDeptApprover = currentUser?.adminData?.isDepartmentApprover === true;
     const approverDept = currentUser?.adminData?.department;
 
-    if (!currentUser || (!isHod && !isDeptApprover)) {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) or an authorized Department Approver can decline faculty applications.');
+    if (!currentUser || !isDeptApprover || !approverDept) {
+      throw new Error('Unauthorized: Only an authorized Department Approver can decline faculty applications for their department.');
     }
 
     if (currentUser.uid === adminId) {
@@ -361,7 +282,7 @@ export const adminService = {
 
     const targetAdminData = adminSnap.data() as Admin;
 
-    if (!isHod && targetAdminData.department !== approverDept) {
+    if (targetAdminData.department !== approverDept) {
       throw new Error(
         `Department boundary error: As the ${approverDept} approver, you cannot decline applicants from ${targetAdminData.department || 'other departments'}.`
       );
@@ -381,8 +302,8 @@ export const adminService = {
       id: auditLogRef.id,
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
-      actorName: currentUser.adminData?.name || 'Head of Department',
-      actorRole: 'HOD',
+      actorName: currentUser.adminData?.name || 'Department Administrator',
+      actorRole: 'DEPT_APPROVER',
       targetUid: adminId,
       targetEmail: targetAdminData.email,
       targetName: targetAdminData.name,
@@ -391,7 +312,7 @@ export const adminService = {
       newStatus: 'REJECTED',
       timestamp: serverTimestamp(),
       details: {
-        reason: reason || 'Application rejected by HOD',
+        reason: reason || 'Application rejected by Department Approver',
         department: targetAdminData.department
       }
     };
@@ -410,13 +331,16 @@ export const adminService = {
   },
 
   /**
-   * Deactivate an administrator's access (HOD only)
-   * Guardrail: Prevents removing the last active HOD account
+   * Deactivate an administrator's access (Department Administrator only)
    */
   async deactivateAdmin(adminId: string): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    if (!currentUser || currentUser.role !== 'HOD') {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) can manage administrator access.');
+    if (!currentUser || !isPlatformAdministrator(currentUser)) {
+      throw new Error('Unauthorized: Only a platform administrator can manage staff account access.');
+    }
+
+    if (currentUser.uid === adminId) {
+      throw new Error('Invalid operation: Administrators cannot deactivate their own account.');
     }
 
     const adminDocRef = doc(db, 'admins', adminId);
@@ -429,33 +353,8 @@ export const adminService = {
       }
     }
 
-    // Guardrail: Do not allow deactivating the last active HOD
-    if (target?.isHod || target?.role === 'HOD') {
-      let activeHodsCount = currentAdmins.filter(
-        (a) => (a.isHod || a.role === 'HOD') && a.approvalStatus === 'APPROVED' && (a as any).isActive !== false
-      ).length;
-
-      // Always verify directly against Firestore to ensure source of truth
-      try {
-        const allAdminsSnap = await getDocs(collection(db, 'admins'));
-        activeHodsCount = allAdminsSnap.docs.filter((d) => {
-          const data = d.data();
-          return (
-            (data.isHod === true || data.role === 'HOD') &&
-            data.approvalStatus === 'APPROVED' &&
-            data.isActive !== false &&
-            data.accountStatus !== 'deactivated'
-          );
-        }).length;
-      } catch (fsErr) {
-        // use fallback count if offline
-      }
-
-      if (activeHodsCount <= 1) {
-        throw new Error(
-          'Safety Guardrail Triggered: Cannot deactivate the only active Head of Department account without establishing a successor.'
-        );
-      }
+    if (!target) {
+      throw new Error('Administrator record not found.');
     }
 
     await updateDoc(adminDocRef, {
@@ -472,8 +371,8 @@ export const adminService = {
       id: auditLogRef.id,
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
-      actorName: currentUser.adminData?.name || 'Head of Department',
-      actorRole: 'HOD',
+      actorName: currentUser.adminData?.name || 'Department Administrator',
+      actorRole: 'ADMIN',
       targetUid: adminId,
       targetEmail: target?.email,
       targetName: target?.name,
@@ -491,16 +390,19 @@ export const adminService = {
   },
 
   /**
-   * Reactivate a deactivated administrator's access (HOD only)
+   * Reactivate a deactivated administrator's access (Department Administrator only)
    */
   async reactivateAdmin(adminId: string): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    if (!currentUser || currentUser.role !== 'HOD') {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) can manage administrator access.');
+    if (!currentUser || !isPlatformAdministrator(currentUser)) {
+      throw new Error('Unauthorized: Only a platform administrator can manage staff account access.');
     }
 
     const currentAdmins = useAppStore.getState().admins;
     const target = currentAdmins.find((a) => a.uid === adminId);
+    if (!target) {
+      throw new Error('Administrator record not found.');
+    }
 
     const adminDocRef = doc(db, 'admins', adminId);
     await updateDoc(adminDocRef, {
@@ -517,8 +419,8 @@ export const adminService = {
       id: auditLogRef.id,
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
-      actorName: currentUser.adminData?.name || 'Head of Department',
-      actorRole: 'HOD',
+      actorName: currentUser.adminData?.name || 'Department Administrator',
+      actorRole: 'ADMIN',
       targetUid: adminId,
       targetEmail: target?.email,
       targetName: target?.name,
@@ -536,12 +438,16 @@ export const adminService = {
   },
 
   /**
-   * Designate or revoke Department Approver status for an approved faculty member (HOD only)
+   * Designate or revoke Department Approver status for an approved faculty member (Department Administrator only)
    */
   async toggleDepartmentApprover(adminId: string, isApprover: boolean): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    if (!currentUser || currentUser.role !== 'HOD') {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) can designate department approvers.');
+    if (!currentUser || !isPlatformAdministrator(currentUser)) {
+      throw new Error('Unauthorized: Only a platform administrator can designate department approvers.');
+    }
+
+    if (currentUser.uid === adminId) {
+      throw new Error('Self-assignment violation: Administrators cannot alter their own approver status.');
     }
 
     const currentAdmins = useAppStore.getState().admins;
@@ -555,20 +461,14 @@ export const adminService = {
     }
 
     const adminDocRef = doc(db, 'admins', adminId);
-    await updateDoc(adminDocRef, {
-      isDepartmentApprover: isApprover,
-      departmentApproverScope: isApprover ? target.department : null,
-      updatedAt: serverTimestamp()
-    });
-
     // Write audit log
     const auditLogRef = doc(collection(db, 'audit_logs'));
     const auditLogData: AuditLog = {
       id: auditLogRef.id,
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
-      actorName: currentUser.adminData?.name || 'Head of Department',
-      actorRole: 'HOD',
+      actorName: currentUser.adminData?.name || 'Department Administrator',
+      actorRole: 'ADMIN',
       targetUid: adminId,
       targetEmail: target.email,
       targetName: target.name,
@@ -579,7 +479,14 @@ export const adminService = {
         isDepartmentApprover: isApprover
       }
     };
-    await setDoc(auditLogRef, auditLogData);
+    const batch = writeBatch(db);
+    batch.update(adminDocRef, {
+      isDepartmentApprover: isApprover,
+      departmentApproverScope: isApprover ? target.department : null,
+      updatedAt: serverTimestamp()
+    });
+    batch.set(auditLogRef, auditLogData);
+    await batch.commit();
     useAppStore.getState().addAuditLog(auditLogData);
 
     useAppStore.setState({
@@ -596,7 +503,7 @@ export const adminService = {
   },
 
   /**
-   * Update Faculty/Admin profile details (self-service for faculty or administrative edit by HOD)
+   * Update Faculty/Admin profile details (self-service for faculty or administrative edit by department administrator)
    * Enforces that users cannot modify their own department, role, approvalStatus, or authorized academic scope.
    */
   async updateAdminProfile(
@@ -616,11 +523,6 @@ export const adminService = {
     }
 
     const isSelf = currentUser.uid === adminId;
-    const isHod = currentUser.role === 'HOD' || currentUser.adminData?.isHod === true;
-
-    if (!isSelf && !isHod) {
-      throw new Error('Unauthorized: You can only edit your own profile or manage profiles as HOD.');
-    }
 
     const adminDocRef = doc(db, 'admins', adminId);
     const adminSnap = await getDoc(adminDocRef);
@@ -628,6 +530,12 @@ export const adminService = {
       throw new Error('Administrator record not found.');
     }
     const currentData = adminSnap.data() as Admin;
+
+    if (!isSelf) {
+      if (!isPlatformAdministrator(currentUser)) {
+        throw new Error('Unauthorized: Only a platform administrator can edit another staff profile.');
+      }
+    }
 
     const cleanName = updates.name.trim();
     if (!cleanName) {
@@ -713,7 +621,7 @@ export const adminService = {
   },
 
   /**
-   * Assign or update faculty authorized academic years and classes (HOD only)
+   * Assign or update faculty authorized academic years and classes (Department Administrator only)
    */
   async updateFacultyPermissions(
     adminId: string,
@@ -724,9 +632,12 @@ export const adminService = {
     }
   ): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-    if (!currentUser || !isHod) {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) can assign faculty academic years and permissions.');
+    if (!currentUser || !isPlatformAdministrator(currentUser)) {
+      throw new Error('Unauthorized: Only a platform administrator can assign faculty academic scope.');
+    }
+
+    if (currentUser.uid === adminId) {
+      throw new Error('Self-assignment violation: Administrators cannot assign their own academic scope.');
     }
 
     const adminDocRef = doc(db, 'admins', adminId);
@@ -771,8 +682,8 @@ export const adminService = {
       id: auditLogRef.id,
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
-      actorName: currentUser.adminData?.name || 'Head of Department',
-      actorRole: 'HOD',
+      actorName: currentUser.adminData?.name || 'Department Administrator',
+      actorRole: 'ADMIN',
       targetUid: adminId,
       targetEmail: targetData.email,
       targetName: targetData.name,
@@ -802,7 +713,7 @@ export const adminService = {
   },
 
   /**
-   * Fetch complete immutable audit trail (HOD only)
+   * Fetch complete immutable audit trail (Authorized Administrator only)
    */
   async getAllAuditLogs(): Promise<AuditLog[]> {
     try {
@@ -820,31 +731,4 @@ export const adminService = {
     }
   },
 
-  generateRegistrationsCsv(): string {
-    const store = useAppStore.getState();
-    const headers = [
-      'Registration ID',
-      'Student ID',
-      'Hackathon ID',
-      'Team ID',
-      'Status',
-      'Attendance',
-      'Submission',
-      'Registered At'
-    ];
-    const rows = store.registrations.map((r) =>
-      [
-        r.registrationNumber || r.id,
-        r.studentId,
-        r.hackathonId,
-        r.teamId || 'No Team',
-        r.status,
-        r.attendanceStatus || 'PENDING',
-        r.submissionStatus || 'NOT_SUBMITTED',
-        new Date(r.registeredAt).toLocaleDateString()
-      ].join(',')
-    );
-
-    return [headers.join(','), ...rows].join('\n');
-  }
 };

@@ -8,6 +8,11 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "provision:admin": "node scripts/provision-first-admin.mjs",
+    "migrate:second-year": "node scripts/migrate-second-year-students.mjs",
+    "verify:student-login": "node scripts/verify-registration-number-login.mjs",
+    "verify:excel": "node scripts/verify-excel-exports.mjs",
+    "migrate:staff-roles": "node scripts/migrate-legacy-staff-roles.mjs",
+    "migrate:attendance-gates": "node scripts/migrate-legacy-attendance-gates.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

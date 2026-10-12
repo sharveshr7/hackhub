@@ -14,48 +14,21 @@ service cloud.firestore {
       return dept in ['Biotechnology', 'Biomedical Engineering'];
     }
 
-    function isHod() {
-      return isAuthenticated() && (
-        request.auth.token.role == 'HOD' ||
-        request.auth.token.role == 'hod' ||
-        request.auth.token.hod == true ||
-        (
-          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-          (
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role in ['HOD', 'hod'] ||
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isHod == true ||
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isFirstAdmin == true ||
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.designation == 'Head of Department (HOD)'
-          ) &&
-          (
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.approvalStatus == 'APPROVED' ||
-            !('approvalStatus' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data)
-          )
-        )
-      );
-    }
-
-    function isAdmin() {
-      return isAuthenticated() && (
-        isHod() ||
-        request.auth.token.role == 'admin' ||
-        request.auth.token.role == 'ADMIN' ||
-        request.auth.token.admin == true ||
-        (
-          exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-          (
-            get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.approvalStatus == 'APPROVED' ||
-            (
-              !('approvalStatus' in get(/databases/$(database)/documents/admins/$(request.auth.uid)).data) &&
-              (get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.role in ['ADMIN', 'admin', 'HOD', 'hod'])
-            )
-          )
-        )
-      );
-    }
-
     function getAdminData() {
       return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data;
+    }
+
+    function isStaff() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        getAdminData().approvalStatus == 'APPROVED' &&
+        getAdminData().isActive != false &&
+        getAdminData().accountStatus != 'deactivated' &&
+        getAdminData().role in ['ADMIN', 'FACULTY', 'admin', 'faculty'];
+    }
+
+    function isPlatformAdmin() {
+      return isStaff() && getAdminData().isPlatformAdmin == true;
     }
 
     function getAdminDept() {
@@ -63,92 +36,148 @@ service cloud.firestore {
     }
 
     function isDeptApprover(dept) {
-      return isAdmin() && (
-        isHod() ||
-        (
-          getAdminData().isDepartmentApprover == true &&
-          getAdminData().department == dept
-        )
+      return isStaff() &&
+        getAdminData().isDepartmentApprover == true &&
+        getAdminData().department == dept;
+    }
+
+    function canAccessDepartment(dept) {
+      return isPlatformAdmin() || (isStaff() && dept == getAdminDept());
+    }
+
+    function canAccessScopedDepartment(dept, year) {
+      return isPlatformAdmin() || (
+        isStaff() &&
+        dept == getAdminDept() &&
+        (!('authorizedYears' in getAdminData()) || getAdminData().authorizedYears.size() == 0 || year in getAdminData().authorizedYears)
       );
     }
 
-    // Students Collection: Account creation restricted to authorized Faculty/HOD within department
-    // Students can read own profile; student directory listing is restricted to administrators within department scope.
-    // Students cannot modify their role, registerNumber, department, accountStatus, or email.
+    function canReadStudent(data) {
+      return isPlatformAdmin() || (
+        isStaff() &&
+        data.department == getAdminDept() &&
+        (!('authorizedYears' in getAdminData()) || getAdminData().authorizedYears.size() == 0 || data.year in getAdminData().authorizedYears)
+      );
+    }
+
+    function validSpecialization(dept, specialization) {
+      return (dept == 'Biotechnology' && specialization in [
+        'Molecular Biology', 'Genetic Engineering', 'Bioinformatics', 'Microbiology',
+        'Bioprocess Technology', 'Cell and Tissue Culture', 'Environmental Biotechnology', 'Other'
+      ]) || (dept == 'Biomedical Engineering' && specialization in [
+        'Medical Imaging', 'Biomedical Instrumentation', 'Biosensors', 'Rehabilitation Engineering',
+        'Biomaterials', 'Medical Signal Processing', 'AI in Healthcare', 'Biomechanics', 'Other'
+      ]);
+    }
+
+    function validCustomSpecialization(data) {
+      return data.researchSpecialization != 'Other' || (
+        data.customSpecialization is string &&
+        data.customSpecialization.size() >= 3 &&
+        data.customSpecialization.size() <= 100 &&
+        data.customSpecialization.matches('^[A-Za-z0-9][A-Za-z0-9 _.,()/&-]{2,99}$')
+      );
+    }
+
+    function validResearchSpecialization(data) {
+      return !('researchSpecialization' in data) || (
+        data.researchSpecialization is string &&
+        validSpecialization(data.department, data.researchSpecialization) &&
+        validCustomSpecialization(data)
+      );
+    }
+
+    // Student Auth accounts and identifier reservations are created only by the trusted server.
     match /students/{studentId} {
-      allow get: if isOwner(studentId) || (
-        isAdmin() && (isHod() || resource.data.department == getAdminDept())
-      );
-      allow list: if isHod() || (
-        isAdmin() && resource.data.department == getAdminDept()
-      );
-      allow create: if isHod() || (
-        isAdmin() &&
-        isValidDepartment(request.resource.data.department) &&
-        request.resource.data.department == getAdminDept()
-      );
-      allow update: if isHod() || (
-        isAdmin() &&
-        resource.data.department == getAdminDept() &&
-        request.resource.data.department == resource.data.department
+      allow get: if isOwner(studentId) || canReadStudent(resource.data);
+      allow list: if canReadStudent(resource.data);
+      allow create: if false;
+      allow update: if (
+        canReadStudent(resource.data) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.registerNumber == resource.data.registerNumber &&
+        request.resource.data.registrationNumberNormalized == resource.data.registrationNumberNormalized &&
+        request.resource.data.department == resource.data.department &&
+        request.resource.data.year == resource.data.year &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'accountStatus', 'isActive', 'bio', 'skills', 'avatarUrl', 'updatedAt'])
       ) || (
         isOwner(studentId) &&
-        (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
-        (!('registerNumber' in request.resource.data) || request.resource.data.registerNumber == resource.data.registerNumber) &&
-        (!('registrationNumberNormalized' in request.resource.data) || request.resource.data.registrationNumberNormalized == resource.data.registrationNumberNormalized) &&
-        (!('department' in request.resource.data) || request.resource.data.department == resource.data.department) &&
-        (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive) &&
-        (!('accountStatus' in request.resource.data) || request.resource.data.accountStatus == resource.data.accountStatus) &&
-        (!('email' in request.resource.data) || request.resource.data.email == resource.data.email)
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.registerNumber == resource.data.registerNumber &&
+        request.resource.data.registrationNumberNormalized == resource.data.registrationNumberNormalized &&
+        request.resource.data.department == resource.data.department &&
+        request.resource.data.year == resource.data.year &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.accountStatus == resource.data.accountStatus &&
+        request.resource.data.isActive == resource.data.isActive &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'bio', 'skills', 'avatarUrl', 'updatedAt'])
       );
-      allow delete: if isHod() || (
-        isAdmin() && resource.data.department == getAdminDept()
-      );
+      allow delete: if canReadStudent(resource.data);
     }
 
-    // Admins Collection: Read allowed for own profile or approved admin/HOD
-    // Create allowed for:
-    // 1) An approved HOD/admin, OR
-    // 2) A faculty applicant registering their own profile with approvalStatus == 'PENDING' in a supported department
+    // Faculty apply as FACULTY. Only department approvers can approve them; client writes never grant platform scope.
     match /admins/{adminId} {
-      allow get: if isOwner(adminId) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isHod() || (
+      allow get: if isOwner(adminId) || isPlatformAdmin() || (isStaff() && resource.data.department == getAdminDept());
+      allow list: if isPlatformAdmin() || (isStaff() && resource.data.department == getAdminDept());
+      allow create: if (
         isOwner(adminId) &&
         request.resource.data.uid == request.auth.uid &&
         request.resource.data.approvalStatus == 'PENDING' &&
-        request.resource.data.role != 'HOD' &&
-        (!('isHod' in request.resource.data) || request.resource.data.isHod != true) &&
+        request.resource.data.role == 'FACULTY' &&
         (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover != true) &&
+        (!('isPlatformAdmin' in request.resource.data) || request.resource.data.isPlatformAdmin != true) &&
+        validResearchSpecialization(request.resource.data) &&
         isValidDepartment(request.resource.data.department) &&
         !exists(/databases/$(database)/documents/students/$(request.auth.uid))
       );
       allow update: if (
-        // 1. HOD can update any administrator (preventing self-approval)
-        (isHod() && !(isOwner(adminId) && resource.data.approvalStatus != 'APPROVED' && request.resource.data.approvalStatus == 'APPROVED')) ||
-        // 2. Designated Department Approver can approve/reject pending faculty in their own department
+        // Department approvers may approve/reject only pending applicants in their own department.
         (
           !isOwner(adminId) &&
           isDeptApprover(resource.data.department) &&
+          resource.data.approvalStatus == 'PENDING' &&
+          resource.data.department == getAdminDept() &&
           request.resource.data.department == resource.data.department &&
-          request.resource.data.role in ['ADMIN', 'admin'] &&
+          request.resource.data.role == 'FACULTY' &&
           request.resource.data.approvalStatus in ['APPROVED', 'REJECTED'] &&
           (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover == resource.data.isDepartmentApprover) &&
-          (!('isHod' in request.resource.data) || request.resource.data.isHod != true)
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvalStatus', 'approvedAt', 'approvedBy', 'approvedByUid', 'reviewedByUid', 'authorizedYears', 'authorizedClasses', 'rejectionReason', 'rejectedAt', 'rejectedBy', 'updatedAt']) &&
+          validResearchSpecialization(request.resource.data)
         ) ||
-        // 3. Admin updating own contact/profile details: CANNOT alter role, department, approvalStatus, isDepartmentApprover, or authorized academic scope
+        // Platform administrators manage approved faculty metadata and scope, but cannot create platform admins in client code.
         (
-          isOwner(adminId) && isAdmin() &&
+          !isOwner(adminId) &&
+          isPlatformAdmin() &&
+          request.resource.data.role == resource.data.role &&
+          (!('isPlatformAdmin' in request.resource.data) || request.resource.data.isPlatformAdmin == resource.data.isPlatformAdmin) &&
+          request.resource.data.approvalStatus == resource.data.approvalStatus &&
+          (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover != true || (
+            request.resource.data.role == 'FACULTY' &&
+            resource.data.approvalStatus == 'APPROVED' &&
+            request.resource.data.departmentApproverScope == resource.data.department
+          )) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'designation', 'department', 'authorizedYears', 'authorizedClasses', 'isDepartmentApprover', 'departmentApproverScope', 'isActive', 'accountStatus', 'deactivatedAt', 'deactivatedByUid', 'reactivatedAt', 'reactivatedByUid', 'updatedAt', 'researchSpecialization', 'customSpecialization', 'researchInterests']) &&
+          validResearchSpecialization(request.resource.data)
+        ) ||
+        // Staff may update profile metadata only.
+        (
+          isOwner(adminId) && isStaff() &&
           request.resource.data.role == resource.data.role &&
           request.resource.data.department == resource.data.department &&
           request.resource.data.approvalStatus == resource.data.approvalStatus &&
+          (!('isPlatformAdmin' in request.resource.data) || request.resource.data.isPlatformAdmin == resource.data.isPlatformAdmin) &&
           (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover == resource.data.isDepartmentApprover) &&
-          (!('isHod' in request.resource.data) || request.resource.data.isHod == resource.data.isHod) &&
           (!('authorizedYears' in request.resource.data) || request.resource.data.authorizedYears == resource.data.authorizedYears) &&
-          (!('authorizedClasses' in request.resource.data) || request.resource.data.authorizedClasses == resource.data.authorizedClasses)
+          (!('authorizedClasses' in request.resource.data) || request.resource.data.authorizedClasses == resource.data.authorizedClasses) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'designation', 'updatedAt', 'researchSpecialization', 'customSpecialization', 'researchInterests']) &&
+          validResearchSpecialization(request.resource.data)
         )
       );
-      allow delete: if isHod() && !isOwner(adminId);
+      allow delete: if isPlatformAdmin() && !isOwner(adminId);
     }
 
     // Registration Lookups: Single document lookup by normalized registration number
@@ -156,194 +185,248 @@ service cloud.firestore {
     // Direct client access is restricted so unauthenticated users cannot harvest student emails.
     // Sensitive lookup resolution is handled by trusted backend (/api/student-auth).
     match /reg_lookups/{regNo} {
-      allow get: if isAdmin();
-      allow list: if false;
-      allow write: if isAdmin();
+      allow get, list, write: if false;
     }
 
-    // Audit Logs: Privileged actions log; readable by HOD, creatable by Admins, immutable
+    // Audit logs are immutable; department approvers can record only completed same-department reviews.
     match /audit_logs/{logId} {
-      allow read: if isHod();
-      allow create: if isAdmin();
+      allow read: if isPlatformAdmin();
+      allow create: if isStaff() &&
+        request.resource.data.actorUid == request.auth.uid &&
+        request.resource.data.actorEmail == request.auth.token.email &&
+        (
+          isPlatformAdmin() ||
+          (
+            request.resource.data.actorRole == 'DEPT_APPROVER' &&
+            request.resource.data.action in ['ADMIN_APPROVED', 'ADMIN_REJECTED'] &&
+            request.resource.data.previousStatus == 'PENDING' &&
+            request.resource.data.details.department == getAdminDept() &&
+            request.resource.data.targetUid is string &&
+            exists(/databases/$(database)/documents/admins/$(request.resource.data.targetUid)) &&
+            get(/databases/$(database)/documents/admins/$(request.resource.data.targetUid)).data.department == getAdminDept() &&
+            get(/databases/$(database)/documents/admins/$(request.resource.data.targetUid)).data.approvalStatus == request.resource.data.newStatus
+          )
+        );
       allow update, delete: if false;
     }
 
     // Hackathons Collection: Public discovery for collegiate challenges; drafts are protected for admin view only
     match /hackathons/{hackathonId} {
-      allow read: if (resource == null) ||
-        resource.data.status in [
-          'PUBLISHED', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'LIVE', 'COMPLETED', 'CANCELLED', 'SUBMISSION_CLOSED',
-          'published', 'registration_open', 'registration_closed', 'live', 'completed', 'cancelled', 'submission_closed'
-        ] ||
+      allow get: if (resource.data.status != 'DRAFT' && resource.data.status != 'draft') ||
         (
-          (resource.data.status != 'DRAFT' && resource.data.status != 'draft')
-        ) ||
-        isHod() ||
-        (
-          isAdmin() && (
+          isStaff() && (
+            isPlatformAdmin() ||
             resource.data.department == getAdminDept() ||
             resource.data.publishedBy == request.auth.uid ||
-            !('department' in resource.data) ||
-            resource.data.department == 'ALL'
+            !('department' in resource.data)
           )
         );
-      allow create: if isAdmin() &&
+      allow list: if resource.data.status in [
+        'PUBLISHED', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED', 'SUBMISSION_CLOSED',
+        'published', 'registration_open', 'registration_closed', 'upcoming', 'ongoing', 'completed', 'cancelled', 'submission_closed'
+      ] || (isStaff() && (isPlatformAdmin() || resource.data.department == getAdminDept() || resource.data.publishedBy == request.auth.uid));
+      allow create: if isStaff() &&
         request.resource.data.title is string && request.resource.data.title.size() > 0 &&
         request.resource.data.organizer is string && request.resource.data.organizer.size() > 0 &&
         request.resource.data.shortDescription is string && request.resource.data.shortDescription.size() > 0 &&
-        (isHod() || request.resource.data.department == getAdminDept());
-      allow update: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          (resource.data.department == 'ALL' && resource.data.publishedBy == request.auth.uid)
-        ) &&
-        (!('department' in request.resource.data) || request.resource.data.department == resource.data.department)
-      );
-      allow delete: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          (resource.data.department == 'ALL' && resource.data.publishedBy == request.auth.uid)
-        )
-      );
+        !('attendanceCode' in request.resource.data) && !('attendanceOpen' in request.resource.data) &&
+        (isPlatformAdmin() ? isValidDepartment(request.resource.data.department) : request.resource.data.department == getAdminDept());
+      allow update: if isStaff() && (isPlatformAdmin() || resource.data.department == getAdminDept() || resource.data.publishedBy == request.auth.uid) &&
+        !('attendanceCode' in request.resource.data) && !('attendanceOpen' in request.resource.data) &&
+        (!('department' in request.resource.data) || request.resource.data.department == resource.data.department);
+      allow delete: if isStaff() && (isPlatformAdmin() || resource.data.department == getAdminDept() || resource.data.publishedBy == request.auth.uid);
     }
 
     // Registrations Collection: Students manage own registrations; faculty access scoped to department
     match /registrations/{registrationId} {
       allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) ||
-        isHod() ||
-        (
-          isAdmin() && (
-            resource.data.department == getAdminDept() ||
-            !('department' in resource.data)
-          )
-        );
-      allow create: if isAuthenticated() && (
-        (request.resource.data.studentId == request.auth.uid && request.resource.data.status in ['CONFIRMED', 'PENDING', 'REGISTERED']) ||
-        isAdmin()
-      );
-      allow update: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          !('department' in resource.data)
-        )
+        canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
+      allow create: if isAuthenticated() &&
+        request.resource.data.studentId == request.auth.uid &&
+        request.resource.data.status == 'CONFIRMED' &&
+        request.resource.data.submissionStatus == 'NOT_SUBMITTED' &&
+        (!('attendedAt' in request.resource.data)) &&
+        ((request.resource.data.isExternal == true && request.resource.data.externalTrackingOnly == true &&
+          request.resource.data.attendanceStatus == 'ATTENDED' && request.resource.data.externalStatus == 'APPLIED_EXTERNALLY') ||
+          (request.resource.data.isExternal != true && request.resource.data.attendanceStatus == 'PENDING')) &&
+        exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
+        request.resource.data.department == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.department &&
+        request.resource.data.academicYear == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.year &&
+        exists(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)) &&
+        get(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)).data.status in ['PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'published', 'registration_open', 'upcoming'];
+      allow update: if (
+        canAccessScopedDepartment(resource.data.department, resource.data.academicYear) &&
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.hackathonId == resource.data.hackathonId &&
+        request.resource.data.registrationNumber == resource.data.registrationNumber &&
+        request.resource.data.department == resource.data.department &&
+        request.resource.data.academicYear == resource.data.academicYear &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+        request.resource.data.status in ['CONFIRMED', 'CANCELLED']
       ) || (
         isAuthenticated() &&
         resource.data.studentId == request.auth.uid &&
-        (!('studentId' in request.resource.data) || request.resource.data.studentId == resource.data.studentId) &&
-        (!('hackathonId' in request.resource.data) || request.resource.data.hackathonId == resource.data.hackathonId) &&
-        (!('registrationNumber' in request.resource.data) || request.resource.data.registrationNumber == resource.data.registrationNumber)
-      );
-      allow delete: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          !('department' in resource.data)
-        )
-      ) || (isAuthenticated() && resource.data.studentId == request.auth.uid);
-    }
-
-    // Teams Collection: Read restricted to team members & administrators within department
-    match /teams/{teamId} {
-      allow read: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          !('department' in resource.data)
-        )
-      ) || (
-        isAuthenticated() && (
-          resource.data.leaderId == request.auth.uid ||
-          (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)
-        )
-      );
-      allow create: if isAuthenticated() &&
-        request.resource.data.leaderId == request.auth.uid &&
-        (request.resource.data.memberIds == null || request.auth.uid in request.resource.data.memberIds);
-      allow update: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          !('department' in resource.data)
-        )
-      ) || (
-        isAuthenticated() && (
-          (resource.data.leaderId == request.auth.uid && request.resource.data.hackathonId == resource.data.hackathonId) ||
+        request.resource.data.studentId == resource.data.studentId &&
+        request.resource.data.hackathonId == resource.data.hackathonId &&
+        request.resource.data.registrationNumber == resource.data.registrationNumber &&
+        request.resource.data.department == resource.data.department &&
+        request.resource.data.academicYear == resource.data.academicYear &&
+        (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acceptedRules', 'updatedAt']) ||
           (
-            (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds) &&
-            request.resource.data.leaderId == resource.data.leaderId &&
-            request.resource.data.hackathonId == resource.data.hackathonId &&
-            request.resource.data.code == resource.data.code
+            resource.data.isExternal == true && resource.data.externalTrackingOnly == true &&
+            request.resource.data.isExternal == true && request.resource.data.externalTrackingOnly == true &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['externalStatus', 'externalNotes', 'updatedAt']) &&
+            request.resource.data.externalStatus in ['PLANNING', 'APPLIED_EXTERNALLY', 'PARTICIPATING', 'COMPLETED', 'RESULT_RECORDED', 'WON', 'WITHDRAWN'] &&
+            (!('externalNotes' in request.resource.data) || (request.resource.data.externalNotes is string && request.resource.data.externalNotes.size() <= 2000))
           )
         )
       );
-      allow delete: if isHod() || (isAuthenticated() && resource.data.leaderId == request.auth.uid);
+      allow delete: if (
+        canAccessScopedDepartment(resource.data.department, resource.data.academicYear)
+      ) || (isAuthenticated() && resource.data.studentId == request.auth.uid);
     }
 
-    // Submissions Collection: Submitting student or department admin can read/update; evaluation fields protected
+    // Team identifiers and membership are visible only to the team, its department staff, or platform admin.
+    match /teams/{teamId} {
+      allow read: if isAuthenticated() && (
+        resource.data.leaderId == request.auth.uid ||
+        (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds) ||
+        canAccessScopedDepartment(resource.data.department, resource.data.academicYear)
+      );
+      // Creation and membership changes use trusted transactional server operations.
+      allow create: if false;
+      allow update: if isStaff() && canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
+      allow delete: if isStaff() && canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
+    }
+
+    // Submissions Collection: Submitting student, teammate, or department admin can read/update; evaluation fields protected
     match /submissions/{submissionId} {
       allow read: if (
         isAuthenticated() && (
           resource.data.submittedBy == request.auth.uid ||
-          resource.data.leaderId == request.auth.uid
-        )
-      ) || isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          !('department' in resource.data)
-        )
-      );
-      allow create: if isAuthenticated() && (
-        (request.resource.data.submittedBy == request.auth.uid || request.resource.data.leaderId == request.auth.uid) ||
-        isAdmin()
-      ) &&
-      request.resource.data.hackathonId is string &&
-      request.resource.data.projectTitle is string;
-      allow update: if isHod() || (
-        isAdmin() && (
-          resource.data.department == getAdminDept() ||
-          !('department' in resource.data)
+          resource.data.leaderId == request.auth.uid ||
+          (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)
         )
       ) || (
-        isAuthenticated() &&
-        (resource.data.submittedBy == request.auth.uid || resource.data.leaderId == request.auth.uid) &&
-        request.resource.data.submittedBy == resource.data.submittedBy &&
+        canAccessScopedDepartment(resource.data.department, resource.data.academicYear)
+      );
+      allow create: if isAuthenticated() &&
+      (request.resource.data.submittedBy == request.auth.uid || request.resource.data.leaderId == request.auth.uid) &&
+      exists(/databases/$(database)/documents/teams/$(request.resource.data.teamId)) &&
+      get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.hackathonId == request.resource.data.hackathonId &&
+      (get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.leaderId == request.auth.uid || request.auth.uid in get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.memberIds) &&
+      request.resource.data.leaderId == get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.leaderId &&
+      request.resource.data.memberIds == get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.memberIds &&
+      request.resource.data.department == get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.department &&
+      request.resource.data.academicYear == get(/databases/$(database)/documents/teams/$(request.resource.data.teamId)).data.academicYear &&
+      request.resource.data.hackathonId is string &&
+      request.resource.data.projectTitle is string &&
+      request.resource.data.isDraft is bool &&
+      request.resource.data.status == (request.resource.data.isDraft ? 'DRAFT' : 'SUBMITTED') &&
+      !('evaluationScore' in request.resource.data) && !('evaluationFeedback' in request.resource.data) && !('rank' in request.resource.data);
+      allow update: if (
+        canAccessScopedDepartment(resource.data.department, resource.data.academicYear) &&
+        resource.data.isDraft == false &&
+        resource.data.status in ['SUBMITTED', 'UNDER_REVIEW', 'SHORTLISTED', 'EVALUATED', 'WINNER'] &&
+        request.resource.data.teamId == resource.data.teamId &&
         request.resource.data.hackathonId == resource.data.hackathonId &&
+        request.resource.data.submittedBy == resource.data.submittedBy &&
+        request.resource.data.leaderId == resource.data.leaderId &&
+        request.resource.data.memberIds == resource.data.memberIds &&
+        request.resource.data.department == resource.data.department &&
+        request.resource.data.academicYear == resource.data.academicYear &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['evaluationScore', 'evaluationFeedback', 'rank', 'status', 'updatedAt']) &&
+        request.resource.data.evaluationScore is number &&
+        request.resource.data.evaluationScore >= 0 && request.resource.data.evaluationScore <= 100 &&
+        request.resource.data.evaluationFeedback is string &&
+        request.resource.data.evaluationFeedback.size() <= 5000 &&
+        request.resource.data.status in ['UNDER_REVIEW', 'SHORTLISTED', 'EVALUATED', 'WINNER']
+      ) || (
+        isAuthenticated() &&
+        (
+          resource.data.submittedBy == request.auth.uid ||
+          resource.data.leaderId == request.auth.uid ||
+          (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)
+        ) &&
+        resource.data.isDraft == true &&
+        request.resource.data.isDraft is bool &&
+        request.resource.data.status in ['DRAFT', 'SUBMITTED'] &&
+        request.resource.data.status == (request.resource.data.isDraft ? 'DRAFT' : 'SUBMITTED') &&
+        request.resource.data.hackathonId == resource.data.hackathonId &&
+        request.resource.data.teamId == resource.data.teamId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['projectTitle', 'title', 'description', 'solution', 'technologies', 'techStack', 'githubUrl', 'demoUrl', 'liveDemoUrl', 'presentationUrl', 'reportUrl', 'demoVideoUrl', 'videoDemoUrl', 'files', 'additionalNotes', 'isDraft', 'status', 'submittedAt', 'updatedAt']) &&
         (!('evaluationScore' in request.resource.data) || request.resource.data.evaluationScore == resource.data.evaluationScore) &&
         (!('evaluationFeedback' in request.resource.data) || request.resource.data.evaluationFeedback == resource.data.evaluationFeedback) &&
         (!('rank' in request.resource.data) || request.resource.data.rank == resource.data.rank)
       );
-      allow delete: if isHod();
+      allow delete: if isStaff() && canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
     }
 
     // Attendance Collection: Students can check in with check-in passcode; faculty managed by department
     match /attendance/{attendanceId} {
-      allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) || isHod() || (
-        isAdmin() && (resource.data.department == getAdminDept() || !('department' in resource.data))
-      );
-      allow create: if (isAuthenticated() && request.resource.data.studentId == request.auth.uid) || isAdmin();
-      allow update: if isHod() || (isAdmin() && (resource.data.department == getAdminDept() || !('department' in resource.data)));
-      allow delete: if isHod() || (isAdmin() && (resource.data.department == getAdminDept() || !('department' in resource.data)));
+      allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) || canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
+      // Check-in records and registration attendance updates are written transactionally by the server.
+      allow create: if false;
+      allow update, delete: if false;
     }
 
-    // Announcements Collection: Public read notice board; only admins can publish/remove
+    // Attendance gate secrets are available only to the trusted API using Firebase Admin SDK.
+    match /attendance_gates/{hackathonId} {
+      allow read, write: if false;
+    }
+
+    // Campus bulletins are public; department bulletins are limited to that department's staff and students.
     match /announcements/{announcementId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read: if isPlatformAdmin() || resource.data.target == 'ALL' || canAccessDepartment(resource.data.department) || (
+        isAuthenticated() && resource.data.target == 'DEPT' &&
+        exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/students/$(request.auth.uid)).data.department == resource.data.department
+      );
+      allow create: if isStaff() && (
+        (isPlatformAdmin() && request.resource.data.target == 'ALL') ||
+        (request.resource.data.target == 'DEPT' && request.resource.data.department == getAdminDept())
+      );
+      allow update: if isStaff() && (
+        (isPlatformAdmin() && request.resource.data.target == 'ALL') ||
+        (resource.data.target == 'DEPT' && resource.data.department == getAdminDept() &&
+          request.resource.data.target == 'DEPT' && request.resource.data.department == resource.data.department)
+      );
+      allow delete: if isStaff() && (isPlatformAdmin() || (resource.data.target == 'DEPT' && resource.data.department == getAdminDept()));
     }
 
     // Notifications Collection: Scoped to user or broadcast 'ALL'; forged creation prevented
     match /notifications/{notificationId} {
-      allow read, update, delete: if isAuthenticated() && (
+      allow read: if isPlatformAdmin() || (isAuthenticated() && (
         resource.data.userId == request.auth.uid ||
         resource.data.userId == 'ALL' ||
-        isAdmin()
-      );
-      allow create: if isAdmin() || (
-        isAuthenticated() && request.resource.data.userId == request.auth.uid
-      );
+        canAccessDepartment(resource.data.department)
+      ));
+      allow update, delete: if isPlatformAdmin();
+      allow create: if isPlatformAdmin() && request.resource.data.userId == 'ALL';
     }
 
-    // Certificates Collection: Public read for certificate verification; only admins can issue
+    // Per-user notification read markers avoid changing a broadcast for every recipient.
+    match /notification_reads/{readId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.notificationId is string &&
+        readId == request.auth.uid + '_' + request.resource.data.notificationId &&
+        request.resource.data.readAt == request.time;
+      allow update: if isAuthenticated() && resource.data.uid == request.auth.uid &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.notificationId == resource.data.notificationId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']) &&
+        request.resource.data.readAt == request.time;
+      allow delete: if false;
+    }
+
+    // Student certificates are private to the student and authorized staff in their department.
     match /certificates/{certificateId} {
-      allow read: if true;
-      allow write: if isAdmin();
+      allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) || canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
+      allow create: if isStaff() && (isPlatformAdmin() || canAccessScopedDepartment(request.resource.data.department, request.resource.data.academicYear));
+      allow update, delete: if isStaff() && (isPlatformAdmin() || canAccessScopedDepartment(resource.data.department, resource.data.academicYear));
     }
 
     // Default catch-all denies unexpected paths

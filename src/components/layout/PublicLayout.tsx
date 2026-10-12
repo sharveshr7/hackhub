@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
 import { Code2, Award, Terminal, LogIn, ChevronRight, ShieldCheck } from 'lucide-react';
+import { isStaffRole } from '../../utils/access';
 
 export const PublicLayout: React.FC = () => {
   const currentUser = useAppStore((state) => state.currentUser);
@@ -63,22 +64,12 @@ export const PublicLayout: React.FC = () => {
             {currentUser ? (
               <button
                 onClick={() =>
-                  navigate(
-                    currentUser.role === 'HOD'
-                      ? '/hod'
-                      : currentUser.role === 'ADMIN'
-                      ? '/admin'
-                      : '/student'
-                  )
+                  navigate(isStaffRole(currentUser.role) ? '/admin' : '/student')
                 }
                 className="inline-flex items-center gap-2 bg-navy-900 hover:bg-navy-800 text-white text-xs sm:text-sm font-semibold px-4 py-2.5 rounded-lg shadow-sm transition-all"
               >
                 <span>
-                  {currentUser.role === 'HOD'
-                    ? 'HOD Portal'
-                    : currentUser.role === 'ADMIN'
-                    ? 'Admin Portal'
-                    : 'Student Dashboard'}
+                  {isStaffRole(currentUser.role) ? 'Staff Portal' : 'Student Dashboard'}
                 </span>
                 <ChevronRight className="w-4 h-4 text-cyan-400" />
               </button>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../../lib/store';
+import { isPlatformAdministrator } from '../../utils/access';
 import { teamService } from '../../services/teamService';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
@@ -14,17 +15,18 @@ import {
   Copy,
   AlertTriangle,
   UserX,
-  GraduationCap
+  GraduationCap,
+  Download
 } from 'lucide-react';
 import { Team } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
+import { downloadExcelWorkbook, getHackathonReportTitle, resolveHackathonReference } from '../../utils/excelExport.mjs';
 
 export const AdminTeamsPage: React.FC = () => {
   const { teams, hackathons, submissions, currentUser } = useAppStore();
   const { addToast } = useToast();
 
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const facultyDept = currentUser?.adminData?.department;
+  const facultyDept = isPlatformAdministrator(currentUser) ? undefined : currentUser?.adminData?.department;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHackathon, setSelectedHackathon] = useState('ALL');
@@ -35,10 +37,10 @@ export const AdminTeamsPage: React.FC = () => {
 
   const filteredTeams = teams.filter((t) => {
     // Scoped to faculty department
-    if (!isHod && facultyDept) {
+    if (facultyDept) {
       const hackathon = hackathons.find((h) => h.id === t.hackathonId);
       const teamDept = (t as any).department || hackathon?.department;
-      if (teamDept && teamDept !== facultyDept && teamDept !== 'ALL') return false;
+      if (teamDept && teamDept !== facultyDept) return false;
     }
 
     if (selectedHackathon !== 'ALL' && t.hackathonId !== selectedHackathon) return false;
@@ -71,7 +73,8 @@ export const AdminTeamsPage: React.FC = () => {
     if (!memberToRemove) return;
     setIsLoading(true);
     try {
-      await teamService.removeMember(memberToRemove.teamId, memberToRemove.memberId);
+      const result = await teamService.removeMember(memberToRemove.teamId, memberToRemove.memberId);
+      if (!result.success) throw new Error(result.message);
       addToast('Student unassigned from team roster.', 'success');
       setMemberToRemove(null);
       if (viewTeam) {
@@ -85,6 +88,59 @@ export const AdminTeamsPage: React.FC = () => {
     }
   };
 
+  const handleExportExcel = () => {
+    if (filteredTeams.length === 0) {
+      addToast('No teams matching current criteria to export.', 'warning');
+      return;
+    }
+
+    const rows = filteredTeams.map((team) => {
+      const hackathon = resolveHackathonReference(team.hackathonId, hackathons);
+      const leader = team.members.find((m) => m.role === 'LEADER') || team.members[0];
+      const sub = submissions.find(
+        (s) => s.teamId === team.id || (s.hackathonId === team.hackathonId && team.members.some((m) => m.studentId === s.submittedBy))
+      );
+      const membersList = team.members.map((m) => `${m.name} (${m.registerNumber || m.studentId})`).join('; ');
+
+      return {
+        teamId: team.id,
+        teamCode: team.code || '',
+        teamName: team.name,
+        hackathonName: hackathon.name,
+        hackathonId: hackathon.id,
+        hackathonReferenceStatus: hackathon.status,
+        leaderName: leader?.name || 'Unassigned',
+        leaderRegisterNumber: leader?.registerNumber || '',
+        memberCount: team.members.length,
+        members: membersList,
+        submissionStatus: sub ? sub.status : 'Pending',
+        createdAt: team.createdAt || ''
+      };
+    });
+
+    downloadExcelWorkbook({
+      sheetName: 'Teams',
+      title: `Team Squads — ${getHackathonReportTitle(selectedHackathon === 'ALL' ? undefined : selectedHackathon, hackathons)}`,
+      fileName: `hackhub-teams-${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { header: 'Team ID', key: 'teamId' },
+        { header: 'Team Code', key: 'teamCode' },
+        { header: 'Team Name', key: 'teamName' },
+        { header: 'Hackathon Name', key: 'hackathonName' },
+        { header: 'Hackathon ID', key: 'hackathonId' },
+        { header: 'Hackathon Reference Status', key: 'hackathonReferenceStatus' },
+        { header: 'Team Leader', key: 'leaderName' },
+        { header: 'Leader Register No', key: 'leaderRegisterNumber' },
+        { header: 'Team Size', key: 'memberCount' },
+        { header: 'Members', key: 'members' },
+        { header: 'Submission Status', key: 'submissionStatus' },
+        { header: 'Created At', key: 'createdAt' }
+      ],
+      rows
+    });
+    addToast('Team roster exported as Excel.', 'success');
+  };
+
   return (
     <div className="space-y-6">
       {/* Standardized Page Header (Section 10: Teams) */}
@@ -94,6 +150,16 @@ export const AdminTeamsPage: React.FC = () => {
         description="Monitor collegiate hackathon squads, member composition, submission deliverables, and participation progress across events."
         count={teams.length}
         countLabel="Registered Squads"
+        actions={
+          <Button
+            onClick={handleExportExcel}
+            variant="outline"
+            size="sm"
+            leftIcon={<Download className="w-3.5 h-3.5" />}
+          >
+            Export Teams (Excel)
+          </Button>
+        }
       />
 
       {/* Filter toolbar */}

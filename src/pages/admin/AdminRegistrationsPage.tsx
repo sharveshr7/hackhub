@@ -19,13 +19,14 @@ import {
   SUPPORTED_ACADEMIC_YEARS,
   normalizeAcademicYear
 } from '../../constants/departments';
+import { downloadExcelWorkbook, getHackathonReportTitle, resolveHackathonReference } from '../../utils/excelExport.mjs';
+import { isPlatformAdministrator } from '../../utils/access';
 
 export const AdminRegistrationsPage: React.FC = () => {
   const { registrations, students, hackathons, teams, submissions, currentUser } = useAppStore();
   const { addToast } = useToast();
 
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const facultyDept = currentUser?.adminData?.department;
+  const facultyDept = isPlatformAdministrator(currentUser) ? undefined : currentUser?.adminData?.department;
   const authorizedYears = currentUser?.adminData?.authorizedYears;
 
   const normalizedAuthorizedYears = useMemo(() => {
@@ -42,7 +43,7 @@ export const AdminRegistrationsPage: React.FC = () => {
   const [viewRegistration, setViewRegistration] = useState<Registration | null>(null);
   const [selectedRegistrationIds, setSelectedRegistrationIds] = useState<string[]>([]);
 
-  const departments = isHod ? SUPPORTED_DEPARTMENTS : (facultyDept ? [facultyDept] : SUPPORTED_DEPARTMENTS);
+  const departments = facultyDept ? [facultyDept] : SUPPORTED_DEPARTMENTS;
   const years = SUPPORTED_ACADEMIC_YEARS;
 
   const filteredRegistrations = registrations.filter((reg) => {
@@ -51,7 +52,7 @@ export const AdminRegistrationsPage: React.FC = () => {
     const team = teams.find((t) => t.id === reg.teamId);
 
     // Strict faculty scope enforcement
-    if (!isHod && facultyDept) {
+    if (facultyDept) {
       if (student && student.department !== facultyDept) return false;
       if (normalizedAuthorizedYears && normalizedAuthorizedYears.length > 0) {
         if (!student?.year) return false;
@@ -126,17 +127,51 @@ export const AdminRegistrationsPage: React.FC = () => {
     }
   };
 
-  const handleExportCsv = () => {
-    const csvContent = adminService.generateRegistrationsCsv();
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `college_hackathon_registrations_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    addToast('Registrations downloaded in CSV format.', 'success');
+  const handleExportExcel = () => {
+    const rows = filteredRegistrations.map((registration) => {
+      const student = students.find((item) => item.uid === registration.studentId);
+      const team = teams.find((item) => item.id === registration.teamId);
+      const hackathon = resolveHackathonReference(registration.hackathonId, hackathons);
+      return {
+        registrationId: registration.registrationNumber || registration.id,
+        studentName: student?.name || 'Unresolved student',
+        studentRegistrationNumber: student?.registerNumber || '',
+        department: student?.department || registration.department || 'Unassigned',
+        academicYear: student?.year || 'Unassigned',
+        hackathonName: hackathon.name,
+        hackathonId: hackathon.id,
+        hackathonReferenceStatus: hackathon.status,
+        teamName: team?.name || 'No Team',
+        teamId: registration.teamId || '',
+        status: registration.status,
+        attendance: registration.attendanceStatus || (registration.attendedAt ? 'PRESENT' : 'PENDING'),
+        submission: registration.submissionStatus || 'NOT_SUBMITTED',
+        registeredAt: registration.registeredAt || ''
+      };
+    });
+    downloadExcelWorkbook({
+      sheetName: 'Registrations',
+      title: `Registration report — ${getHackathonReportTitle(selectedHackathon, hackathons)}`,
+      fileName: `hackhub-registrations-${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { header: 'Registration ID', key: 'registrationId' },
+        { header: 'Student Name', key: 'studentName' },
+        { header: 'Student Registration Number', key: 'studentRegistrationNumber' },
+        { header: 'Department', key: 'department' },
+        { header: 'Academic Year', key: 'academicYear' },
+        { header: 'Hackathon Name', key: 'hackathonName' },
+        { header: 'Hackathon ID', key: 'hackathonId' },
+        { header: 'Hackathon Reference Status', key: 'hackathonReferenceStatus' },
+        { header: 'Team Name', key: 'teamName' },
+        { header: 'Team ID', key: 'teamId' },
+        { header: 'Status', key: 'status' },
+        { header: 'Attendance', key: 'attendance' },
+        { header: 'Submission', key: 'submission' },
+        { header: 'Registered At', key: 'registeredAt' }
+      ],
+      rows
+    });
+    addToast('Registrations downloaded as a filtered Excel report.', 'success');
   };
 
   return (
@@ -149,12 +184,12 @@ export const AdminRegistrationsPage: React.FC = () => {
         badge={`${filteredRegistrations.length} Registrations`}
         actions={
           <Button
-            onClick={handleExportCsv}
+            onClick={handleExportExcel}
             variant="outline"
             size="sm"
             leftIcon={<Download className="w-3.5 h-3.5" />}
           >
-            Export Roster CSV
+            Export Roster Excel
           </Button>
         }
       />

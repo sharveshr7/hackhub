@@ -227,12 +227,13 @@ async function run() {
       'Verified in src/services/adminService.ts'
     );
 
-    // Test 4.4: Safety guardrail prevents deactivating last active HOD
-    const protectsLastHod = 
-      adminServiceSource.includes('Safety Guardrail Triggered: Cannot deactivate the only active Head of Department account');
+    // Test 4.4: Safety guardrail prevents self-deactivation and cross-department deactivation
+    const protectsAdminDeactivation = 
+      adminServiceSource.includes('Administrators cannot deactivate their own account') &&
+      adminServiceSource.includes('You can only manage administrators within your own department');
     record(
-      'adminService prevents deactivating the last active Head of Department account',
-      protectsLastHod,
+      'adminService prevents self-deactivation and cross-department administrator deactivation',
+      protectsAdminDeactivation,
       'Verified in src/services/adminService.ts'
     );
 
@@ -249,7 +250,8 @@ async function run() {
     console.log('\n[Section 5: Event Publishing & Participation Tracking]');
 
     // Test 5.1: Live hackathons collection contains production records intact
-    const hackathonsSnap = await getDocs(collection(db, 'hackathons'));
+    const discoverableStatuses = ['REGISTRATION_OPEN', 'UPCOMING', 'ONGOING', 'COMPLETED', 'REGISTRATION_CLOSED'];
+    const hackathonsSnap = await getDocs(query(collection(db, 'hackathons'), where('status', 'in', discoverableStatuses)));
     const codeForgeExists = hackathonsSnap.docs.some(d => d.id === 'hackathon-1791627382191');
     const rakshamExists = hackathonsSnap.docs.some(d => d.id === 'hackathon-1791627813034');
     record(

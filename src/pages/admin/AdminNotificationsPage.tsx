@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
 import { notificationService } from '../../services/notificationService';
 import { Input, Textarea } from '../../components/common/Input';
 import { Button } from '../../components/common/Button';
 import { useToast } from '../../components/common/Toast';
 import { PageHeader } from '../../components/common/PageHeader';
+import { isPlatformAdministrator } from '../../utils/access';
 import {
   Bell,
   Send,
@@ -20,6 +22,7 @@ import {
 } from 'lucide-react';
 
 export const AdminNotificationsPage: React.FC = () => {
+  const currentUser = useAppStore((state) => state.currentUser);
   const hackathons = useAppStore((state) => state.hackathons);
   const notifications = useAppStore((state) => state.notifications);
   const { showToast } = useToast();
@@ -30,6 +33,7 @@ export const AdminNotificationsPage: React.FC = () => {
   const [selectedHackathonId, setSelectedHackathonId] = useState('');
   const [isImportant, setIsImportant] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  if (!isPlatformAdministrator(currentUser)) return <Navigate to="/admin" replace />;
 
   // Exact prompt Section 29 presets
   const presets = [
@@ -80,8 +84,8 @@ export const AdminNotificationsPage: React.FC = () => {
 
       showToast(
         'success',
-        'Push Notification Dispatched!',
-        'Sent to student notification centers and simulated FCM devices.'
+        'Notification Published',
+        'Saved to the in-app notification center for students.'
       );
       setTitle('');
       setMessage('');
@@ -112,7 +116,7 @@ export const AdminNotificationsPage: React.FC = () => {
         title="Campus Notification Center"
         description="Dispatch urgent deadline alerts, team updates, and submission milestones to student dashboards."
         category="Communications & Alerts"
-        badge="Push Broadcaster"
+        badge="Platform-wide Broadcast"
       />
 
       {/* Quick Presets */}

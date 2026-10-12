@@ -1,4 +1,4 @@
-import { db } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
 import {
   collection,
   getDocs,
@@ -6,9 +6,9 @@ import {
   where,
   doc,
   getDoc,
-  setDoc,
   updateDoc,
   serverTimestamp
+  ,runTransaction
 } from 'firebase/firestore';
 import { useAppStore } from '../lib/store';
 import { Registration, RegistrationStatus, Hackathon } from '../types';
@@ -36,19 +36,16 @@ export const registrationService = {
    * Fetch all registrations for a hackathon from Firestore
    */
   async getRegistrationsByHackathon(hackathonId: string): Promise<Registration[]> {
-    const q = query(collection(db, 'registrations'), where('hackathonId', '==', hackathonId));
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Registration));
+    // The real-time sync keeps only records the signed-in role is allowed to read.
+    return useAppStore.getState().registrations.filter((registration) => registration.hackathonId === hackathonId);
   },
 
   /**
    * Fetch all registrations (Admin operational view) from Firestore
    */
   async getAllRegistrations(): Promise<Registration[]> {
-    const snap = await getDocs(collection(db, 'registrations'));
-    const registrations = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Registration));
-    useAppStore.setState({ registrations });
-    return registrations;
+    // Return the current user's already scoped live dataset; never issue an unscoped collection read.
+    return useAppStore.getState().registrations;
   },
 
   /**
@@ -85,7 +82,10 @@ export const registrationService = {
 
     // 4. Create real registration record
     const nowIso = new Date().toISOString();
-    const regId = `reg_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
+    if (!auth.currentUser || auth.currentUser.uid !== studentId) {
+      return { success: false, message: 'Sign in as the student account before registering.' };
+    }
+    const regId = `reg_${hackathonId}_${studentId}`;
     const randNum = Math.floor(1000 + Math.random() * 9000);
     const isExt = Boolean(
       hackathon.isExternal ||
@@ -95,13 +95,17 @@ export const registrationService = {
     const currentStudent =
       useAppStore.getState().currentUser?.studentData ||
       useAppStore.getState().students.find((s) => s.uid === studentId);
-    const studentDept = currentStudent?.department || hackathon?.department || '';
+    if (!currentStudent?.department || !currentStudent.year) {
+      return { success: false, message: 'Your provisioned student profile must include a department and academic year.' };
+    }
+    const studentDept = currentStudent.department;
 
     const newReg: Registration = {
       id: regId,
       hackathonId,
       studentId,
       department: studentDept,
+      academicYear: currentStudent.year,
       registrationNumber,
       status: 'CONFIRMED',
       isExternal: isExt,
@@ -119,6 +123,7 @@ export const registrationService = {
       hackathonId,
       studentId,
       department: studentDept,
+      academicYear: currentStudent.year,
       registrationNumber,
       status: 'CONFIRMED',
       isExternal: isExt,
@@ -149,10 +154,20 @@ export const registrationService = {
 
     // Defensive strip of any undefined values
     const cleanPayload = Object.fromEntries(
-      Object.entries(firestorePayload).filter(([_, v]) => v !== undefined)
+      Object.entries(firestorePayload).filter(([, value]) => value !== undefined)
     );
 
-    await setDoc(doc(db, 'registrations', regId), cleanPayload);
+    try {
+      await runTransaction(db, async (transaction) => {
+        const registrationRef = doc(db, 'registrations', regId);
+        const existingRegistration = await transaction.get(registrationRef);
+        if (existingRegistration.exists()) throw new Error('You have already registered for this hackathon.');
+        transaction.set(registrationRef, cleanPayload);
+      });
+    } catch (error: any) {
+      if (error?.message?.includes('already registered')) return { success: false, message: error.message };
+      throw error;
+    }
 
     // Sync into store
     useAppStore.setState((state) => ({
@@ -198,7 +213,7 @@ export const registrationService = {
       Object.entries({
         ...updates,
         updatedAt: serverTimestamp()
-      }).filter(([_, v]) => v !== undefined)
+      }).filter(([, value]) => value !== undefined)
     );
     await updateDoc(doc(db, 'registrations', id), cleanUpdates);
     useAppStore.getState().updateRegistration(id, updates);

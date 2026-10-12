@@ -210,6 +210,7 @@ async function runAuthChecklistTests() {
     delete process.env.FIREBASE_SERVICE_ACCOUNT;
     delete process.env.FIREBASE_CLIENT_EMAIL;
     delete process.env.FIREBASE_PRIVATE_KEY;
+    process.env.DISABLE_LOCAL_CLI_AUTH = 'true';
 
     resetAllRateLimits();
     const unconfiguredRes = await handleStudentAuth(
@@ -230,6 +231,7 @@ async function runAuthChecklistTests() {
     );
 
     // Restore environment
+    delete process.env.DISABLE_LOCAL_CLI_AUTH;
     if (savedEnv) process.env.FIREBASE_SERVICE_ACCOUNT = savedEnv;
 
     // -------------------------------------------------------------------------

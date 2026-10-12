@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '../../lib/store';
 import { adminService } from '../../services/adminService';
 import { Button } from '../../components/common/Button';
@@ -32,13 +32,15 @@ import {
   SUPPORTED_ACADEMIC_YEARS,
   normalizeAcademicYear
 } from '../../constants/departments';
+import { downloadExcelWorkbook, getHackathonReportTitle, resolveHackathonReference } from '../../utils/excelExport.mjs';
+import { isPlatformAdministrator } from '../../utils/access';
 
 export const AdminStudentsPage: React.FC = () => {
   const { students, registrations, teams, hackathons, submissions, certificates, currentUser } = useAppStore();
   const { addToast } = useToast();
 
-  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
-  const facultyDept = currentUser?.adminData?.department;
+  const platformAdministrator = isPlatformAdministrator(currentUser);
+  const facultyDept = platformAdministrator ? undefined : currentUser?.adminData?.department;
   const authorizedYears = currentUser?.adminData?.authorizedYears;
 
   const normalizedAuthorizedYears = useMemo(() => {
@@ -60,18 +62,21 @@ export const AdminStudentsPage: React.FC = () => {
   const [provName, setProvName] = useState('');
   const [provRegNo, setProvRegNo] = useState('');
   const [provEmail, setProvEmail] = useState('');
-  const [provDept, setProvDept] = useState(facultyDept || SUPPORTED_DEPARTMENTS[0]);
-  const [provYear, setProvYear] = useState<string>(SUPPORTED_ACADEMIC_YEARS[0]);
+  const [provDept, setProvDept] = useState(facultyDept || '');
+  const [provYear, setProvYear] = useState<string>('');
   const [provPhone, setProvPhone] = useState('');
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState<string | null>(null);
 
-  const departments = isHod ? SUPPORTED_DEPARTMENTS : (facultyDept ? [facultyDept] : SUPPORTED_DEPARTMENTS);
+  const departments = platformAdministrator ? SUPPORTED_DEPARTMENTS : facultyDept ? [facultyDept] : [];
   const years = SUPPORTED_ACADEMIC_YEARS;
+
+  useEffect(() => {
+    if (!platformAdministrator && facultyDept) setProvDept(facultyDept);
+  }, [platformAdministrator, facultyDept]);
 
   // Restrict student dataset according to faculty department and authorized academic years
   const scopedStudents = useMemo(() => {
-    if (isHod) return students;
     return students.filter((s) => {
       // Must match faculty department
       if (facultyDept && s.department !== facultyDept) return false;
@@ -83,7 +88,7 @@ export const AdminStudentsPage: React.FC = () => {
       }
       return true;
     });
-  }, [students, isHod, facultyDept, normalizedAuthorizedYears]);
+  }, [students, facultyDept, normalizedAuthorizedYears]);
 
   // Enrich each student with participation statistics
   const enrichedStudents = useMemo(() => {
@@ -197,43 +202,64 @@ export const AdminStudentsPage: React.FC = () => {
     searchQuery
   ]);
 
-  const handleExportCsv = () => {
-    const headers = [
-      'Student Name',
-      'Register Number',
-      'Department',
-      'Year',
-      'Email',
-      'Registered Hackathons',
-      'Active Participation',
-      'Teams',
-      'Submissions',
-      'Completed Hackathons',
-      'Achievements'
-    ];
-
-    const rows = filteredRecords.map(({ student: s, registeredHackathons, activeHackathons, teams: t, submissions: sub, completedHackathons, certificates: c }) => [
-      `"${s.name}"`,
-      s.registerNumber,
-      `"${s.department}"`,
-      s.year,
-      s.email,
-      registeredHackathons.length,
-      activeHackathons.length > 0 ? 'Yes' : 'No',
-      `"${t.map((team) => team.name).join('; ') || 'None'}"`,
-      sub.length,
-      completedHackathons.length,
-      c.length
-    ]);
-
-    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `kit-student-participation-monitoring-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    addToast('Student participation records exported as CSV.', 'success');
+  const handleExportExcel = () => {
+    const rows = filteredRecords.flatMap(({ student, studentRegs, activeHackathons, teams: studentTeams, submissions: studentSubmissions, completedHackathons, certificates: studentCertificates }) => {
+      const relatedRegistrations = studentRegs.filter((registration) =>
+        selectedHackathonId === 'ALL' || registration.hackathonId === selectedHackathonId
+      );
+      const exportRegistrations = relatedRegistrations.length ? relatedRegistrations : [null];
+      return exportRegistrations.map((registration) => {
+        const reference = registration
+          ? resolveHackathonReference(registration.hackathonId, hackathons)
+          : { name: 'No hackathon registration', id: '', status: 'No related hackathon' };
+        const hackathonTeams = registration
+          ? studentTeams.filter((team) => team.hackathonId === registration.hackathonId)
+          : [];
+        const hackathonTeamIds = new Set(hackathonTeams.map((team) => team.id));
+        const hackathonSubmissions = registration
+          ? studentSubmissions.filter((submission) => submission.hackathonId === registration.hackathonId && hackathonTeamIds.has(submission.teamId))
+          : [];
+        return {
+          studentName: student.name,
+          registrationNumber: student.registerNumber,
+          department: student.department,
+          academicYear: student.year || 'Unassigned',
+          email: student.email,
+          hackathonName: reference.name,
+          hackathonId: reference.id,
+          hackathonReferenceStatus: reference.status,
+          registrationId: registration?.registrationNumber || registration?.id || '',
+          activeParticipation: registration && activeHackathons.some((item) => item.id === registration.hackathonId) ? 'Yes' : 'No',
+          teams: hackathonTeams.map((team) => team.name).join('; ') || 'None',
+          submissions: hackathonSubmissions.length,
+          completedHackathons: registration && completedHackathons.some((item) => item.id === registration.hackathonId) ? 1 : 0,
+          achievements: registration ? studentCertificates.filter((certificate) => certificate.hackathonId === registration.hackathonId).length : 0
+        };
+      });
+    });
+    downloadExcelWorkbook({
+      sheetName: 'Student Participation',
+      title: `Student participation — ${getHackathonReportTitle(selectedHackathonId, hackathons)}`,
+      fileName: `hackhub-student-participation-${new Date().toISOString().slice(0, 10)}`,
+      columns: [
+        { header: 'Student Name', key: 'studentName' },
+        { header: 'Registration Number', key: 'registrationNumber' },
+        { header: 'Department', key: 'department' },
+        { header: 'Academic Year', key: 'academicYear' },
+        { header: 'College Email', key: 'email' },
+        { header: 'Hackathon Name', key: 'hackathonName' },
+        { header: 'Hackathon ID', key: 'hackathonId' },
+        { header: 'Hackathon Reference Status', key: 'hackathonReferenceStatus' },
+        { header: 'Registration ID', key: 'registrationId' },
+        { header: 'Active Participation', key: 'activeParticipation' },
+        { header: 'Teams', key: 'teams' },
+        { header: 'Submissions', key: 'submissions' },
+        { header: 'Completed Hackathons', key: 'completedHackathons' },
+        { header: 'Achievements', key: 'achievements' }
+      ],
+      rows
+    });
+    addToast('Student participation records exported as filtered Excel.', 'success');
   };
 
   const handleProvisionStudent = async (e: React.FormEvent) => {
@@ -295,12 +321,12 @@ export const AdminStudentsPage: React.FC = () => {
               Provision Student
             </Button>
             <Button
-              onClick={handleExportCsv}
+            onClick={handleExportExcel}
               variant="outline"
               size="sm"
               leftIcon={<Download className="w-3.5 h-3.5" />}
             >
-              Export Participation CSV
+              Export Participation Excel
             </Button>
           </div>
         }
@@ -689,14 +715,16 @@ export const AdminStudentsPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Department {!isHod && <span className="text-[10px] text-slate-500 font-normal">(Locked to your department)</span>}
+                Department <span className="text-[10px] text-slate-500 font-normal">(Locked to your department)</span>
               </label>
               <select
                 value={provDept}
                 onChange={(e) => setProvDept(e.target.value)}
-                disabled={!isHod}
+                disabled={!platformAdministrator}
+                required
                 className="w-full py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium disabled:bg-slate-100 disabled:text-slate-500"
               >
+                {platformAdministrator && <option value="" disabled>Select department</option>}
                 {departments.map((dept) => (
                   <option key={dept} value={dept}>
                     {dept}
@@ -712,8 +740,10 @@ export const AdminStudentsPage: React.FC = () => {
               <select
                 value={provYear}
                 onChange={(e) => setProvYear(e.target.value)}
+                required
                 className="w-full py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium"
               >
+                <option value="" disabled>Select academic year</option>
                 {years.map((yr) => (
                   <option key={yr} value={yr}>
                     {yr}

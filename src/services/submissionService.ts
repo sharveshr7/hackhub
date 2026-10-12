@@ -1,9 +1,5 @@
 import { auth, db } from '../lib/firebase';
 import {
-  collection,
-  getDocs,
-  query,
-  where,
   doc,
   getDoc,
   setDoc,
@@ -51,28 +47,17 @@ export const submissionService = {
    * Fetch submission for a team from Firestore
    */
   async getSubmissionByTeam(hackathonId: string, teamId: string): Promise<Submission | null> {
-    const q = query(
-      collection(db, 'submissions'),
-      where('hackathonId', '==', hackathonId),
-      where('teamId', '==', teamId)
-    );
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    return { id: snap.docs[0].id, ...snap.docs[0].data() } as Submission;
+    return useAppStore.getState().submissions.find(
+      (submission) => submission.hackathonId === hackathonId && submission.teamId === teamId
+    ) || null;
   },
 
   /**
    * Fetch all submissions (or filtered by hackathon) from Firestore
    */
   async getAllSubmissions(hackathonId?: string): Promise<Submission[]> {
-    let q = query(collection(db, 'submissions'));
-    if (hackathonId) {
-      q = query(collection(db, 'submissions'), where('hackathonId', '==', hackathonId));
-    }
-    const snap = await getDocs(q);
-    const submissions = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Submission));
-    useAppStore.setState({ submissions });
-    return submissions;
+    const submissions = useAppStore.getState().submissions;
+    return hackathonId ? submissions.filter((submission) => submission.hackathonId === hackathonId) : submissions;
   },
 
   /**
@@ -105,12 +90,32 @@ export const submissionService = {
     const nowIso = new Date().toISOString();
     const currentStudent = useAppStore.getState().currentUser?.studentData;
 
+    const teamInStore = useAppStore.getState().teams.find((t) => t.id === data.teamId);
+    let leaderId = data.leaderId || teamInStore?.leaderId;
+    let memberIds = data.memberIds || teamInStore?.memberIds || (teamInStore?.members ? teamInStore.members.map((m) => m.studentId) : undefined);
+
+    if (!leaderId && data.teamId) {
+      try {
+        const teamSnap = await getDoc(doc(db, 'teams', data.teamId));
+        if (teamSnap.exists()) {
+          const tData = teamSnap.data();
+          leaderId = tData.leaderId;
+          memberIds = tData.memberIds || (tData.members ? tData.members.map((m: any) => m.studentId) : undefined);
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
     const submissionDoc: Submission = {
       id: subId,
       hackathonId: data.hackathonId,
       teamId: data.teamId,
       teamName: data.teamName,
+      leaderId,
+      memberIds,
       department: data.department || currentStudent?.department || '',
+      academicYear: data.academicYear || currentStudent?.year || teamInStore?.academicYear || '',
       projectTitle: data.projectTitle || 'Untitled Prototype',
       problemStatementId: data.problemStatementId || '',
       problemStatementTitle: data.problemStatementTitle || 'General Track',
@@ -143,7 +148,7 @@ export const submissionService = {
         ...submissionDoc,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      }).filter(([_, v]) => v !== undefined)
+      }).filter(([, value]) => value !== undefined)
     );
 
     await setDoc(doc(db, 'submissions', subId), cleanSubmission);
