@@ -75,10 +75,14 @@ export const hackathonService = {
     const currentUser = useAppStore.getState().currentUser;
     const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
     let dept = data.department;
-    if (!dept) {
-      dept = isHod ? 'ALL' : (currentUser?.adminData?.department || 'Biotechnology');
-    } else if (!isHod && dept !== 'ALL' && dept !== currentUser?.adminData?.department) {
-      throw new Error(`Unauthorized: You can only publish events within your department (${currentUser?.adminData?.department}) or institution-wide (ALL).`);
+    if (!isHod) {
+      const userDept = currentUser?.adminData?.department;
+      if (!userDept) {
+        throw new Error('Unauthorized: Your profile must have an assigned department to publish events.');
+      }
+      dept = userDept;
+    } else if (!dept) {
+      dept = 'ALL';
     }
 
     const now = new Date().toISOString();
@@ -137,6 +141,17 @@ export const hackathonService = {
    * Delete hackathon document from Firestore
    */
   async deleteHackathon(id: string): Promise<void> {
+    const currentUser = useAppStore.getState().currentUser;
+    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+    if (!isHod) {
+      const existing = useAppStore.getState().hackathons.find((h) => h.id === id);
+      const userDept = currentUser?.adminData?.department;
+      if (existing && existing.department !== userDept && existing.publishedBy !== currentUser?.uid) {
+        throw new Error(
+          `Unauthorized: You can only delete events within your department scope (${userDept}).`
+        );
+      }
+    }
     await deleteDoc(doc(db, 'hackathons', id));
     useAppStore.getState().deleteHackathon(id);
   },

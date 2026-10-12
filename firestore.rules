@@ -191,20 +191,18 @@ service cloud.firestore {
         request.resource.data.title is string && request.resource.data.title.size() > 0 &&
         request.resource.data.organizer is string && request.resource.data.organizer.size() > 0 &&
         request.resource.data.shortDescription is string && request.resource.data.shortDescription.size() > 0 &&
-        (isHod() || !('department' in request.resource.data) || request.resource.data.department in [getAdminDept(), 'ALL']);
+        (isHod() || request.resource.data.department == getAdminDept());
       allow update: if isHod() || (
         isAdmin() && (
-          resource.data.publishedBy == request.auth.uid ||
           resource.data.department == getAdminDept() ||
-          !('department' in resource.data) ||
-          resource.data.department == 'ALL'
+          (resource.data.department == 'ALL' && resource.data.publishedBy == request.auth.uid)
         ) &&
-        (!('department' in request.resource.data) || request.resource.data.department in [resource.data.department, getAdminDept(), 'ALL'])
+        (!('department' in request.resource.data) || request.resource.data.department == resource.data.department)
       );
       allow delete: if isHod() || (
         isAdmin() && (
-          resource.data.publishedBy == request.auth.uid ||
-          resource.data.department == getAdminDept()
+          resource.data.department == getAdminDept() ||
+          (resource.data.department == 'ALL' && resource.data.publishedBy == request.auth.uid)
         )
       );
     }
