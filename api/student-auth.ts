@@ -15,6 +15,9 @@
 
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { getApps, initializeApp, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 
 interface RateLimitEntry {
   attempts: number;
@@ -73,12 +76,12 @@ const FIREBASE_API_KEY =
   process.env.FIREBASE_WEB_API_KEY ||
   process.env.VITE_FIREBASE_API_KEY ||
   getDotEnvValue('VITE_FIREBASE_API_KEY') ||
-  '';
+  'AIzaSyDola5Yv45cq2h4OgmBPrFar5dUcRUh_as';
 const FIREBASE_PROJECT_ID =
   process.env.FIREBASE_PROJECT_ID ||
   process.env.VITE_FIREBASE_PROJECT_ID ||
   getDotEnvValue('VITE_FIREBASE_PROJECT_ID') ||
-  '';
+  'foceye-2546c';
 
 let mockAdminInstances: any = null;
 
@@ -350,32 +353,28 @@ export async function getAdminInstances() {
 
   let currentStep = 'start';
   try {
-    currentStep = 'import_firebase_admin_app_and_db';
-    const { getApps, initializeApp, cert } = await import('firebase-admin/app');
-    const { getFirestore } = await import('firebase-admin/firestore');
-
-    let getAuthFn: any = null;
-    try {
-      currentStep = 'import_firebase_admin_auth';
-      const authModule = await import('firebase-admin/auth');
-      getAuthFn = authModule.getAuth;
-    } catch (authImportErr: any) {
-      console.warn('[StudentAuth Diagnostics] Admin Auth module import note (Firestore continues):', authImportErr.message);
-    }
-
     currentStep = 'check_existing_apps';
     const expectedProjectId = getExpectedProjectId();
 
     const existingApps = getApps();
     const adminApp = existingApps.find(a => a.name === 'HackHubAdmin') || null;
 
-    if (adminApp && !cachedAdminInstances) {
+    if (adminApp) {
+      if (cachedAdminInstances) {
+        return cachedAdminInstances;
+      }
       try {
         const db = getFirestore(adminApp);
+        let auth: any = null;
+        try {
+          auth = getAuth(adminApp);
+        } catch {
+          // Continue if auth isn't needed immediately
+        }
         cachedAdminInstances = {
           adminApp,
           adminDb: db,
-          adminAuth: getAuthFn ? getAuthFn(adminApp) : null
+          adminAuth: auth
         };
         return cachedAdminInstances;
       } catch {
@@ -402,7 +401,7 @@ export async function getAdminInstances() {
       // Validate that credentials belong to the intended HackHub Firebase project
       currentStep = 'validate_project_id';
       const credProjectId = (serviceAccount.project_id || serviceAccount.projectId || '').trim();
-      if (credProjectId && credProjectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
+      if (expectedProjectId && credProjectId && credProjectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
         const mismatchMsg = `Credential project_id "${credProjectId}" does not match target HackHub project "${expectedProjectId}".`;
         lastInitError = `[validate_project_id] ${mismatchMsg}`;
         console.warn(`[StudentAuth Diagnostics] ${mismatchMsg}`);
@@ -426,11 +425,18 @@ export async function getAdminInstances() {
 
       console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
       lastInitError = null;
-      return {
+      let auth: any = null;
+      try {
+        auth = getAuth(app);
+      } catch (authErr: any) {
+        console.warn('[StudentAuth Diagnostics] getAuth warning:', authErr?.message);
+      }
+      cachedAdminInstances = {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuthFn ? getAuthFn(app) : null
+        adminAuth: auth
       };
+      return cachedAdminInstances;
     } else {
       lastInitError = '[env_check] No credentials detected';
       console.log('[StudentAuth Diagnostics] No service account credentials detected in environment variables (credentialSource=NONE).');
@@ -470,7 +476,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuthFn ? getAuthFn(app) : null
+        adminAuth: getAuth(app)
       };
     }
 
@@ -492,7 +498,7 @@ export async function getAdminInstances() {
           return {
             adminApp: app,
             adminDb: getFirestore(app),
-            adminAuth: getAuthFn ? getAuthFn(app) : null
+            adminAuth: getAuth(app)
           };
         } catch {
           // Fall back to default initialization
@@ -503,7 +509,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuthFn ? getAuthFn(app) : null
+        adminAuth: getAuth(app)
       };
     }
 
@@ -556,7 +562,7 @@ export async function getAdminInstances() {
             cachedAdminInstances = {
               adminApp: app,
               adminDb: directDb as any,
-              adminAuth: getAuthFn ? getAuthFn(app) : null
+              adminAuth: getAuth(app)
             };
             return cachedAdminInstances;
           }
@@ -939,7 +945,7 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
   }
 
   if (!adminInstances) adminInstances = await getAdminInstances();
-  if (!adminInstances?.adminAuth || !adminInstances.adminDb) {
+  if (!adminInstances?.adminDb) {
     return {
       status: 503,
       body: { error: 'Student authentication is temporarily unavailable because trusted Firebase server credentials are not configured.' }
