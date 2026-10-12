@@ -20,6 +20,13 @@ import {
 import { Registration, Student, Admin, RegistrationStatus, AuditLog } from '../types';
 import { analyticsService } from './analyticsService';
 import { useAppStore } from '../lib/store';
+import {
+  isSupportedDepartment,
+  isValidSpecialization,
+  sanitizeCustomSpecialization,
+  SUPPORTED_ACADEMIC_YEARS,
+  normalizeAcademicYear
+} from '../constants/departments';
 
 export const adminService = {
   getAdminOverviewStats: analyticsService.getAdminOverviewStats.bind(analyticsService),
@@ -93,8 +100,17 @@ export const adminService = {
 
     if (!cleanName) throw new Error('Student full name is required.');
     if (!cleanRegNo) throw new Error('Registration number is required.');
-    if (!cleanEmail) throw new Error('Student email address is required.');
     if (!cleanDept) throw new Error('Academic department is required.');
+
+    if (!isSupportedDepartment(cleanDept)) {
+      throw new Error(`Invalid department "${cleanDept}". HackHub strictly supports only Biotechnology and Biomedical Engineering.`);
+    }
+
+    const isHod = currentUser.role === 'HOD' || currentUser.adminData?.isHod === true;
+    const adminDept = currentUser.adminData?.department;
+    if (!isHod && cleanDept !== adminDept) {
+      throw new Error(`Department authorization error: As a faculty member of ${adminDept}, you are only permitted to provision students for your own department.`);
+    }
 
     // 1. Check uniqueness of registration number in reg_lookups
     const lookupRef = doc(db, 'reg_lookups', cleanRegNo);
@@ -215,12 +231,20 @@ export const adminService = {
   },
 
   /**
-   * Approve a pending faculty coordinator application (HOD only)
+   * Approve a pending faculty coordinator application (HOD or designated Department Approver)
    */
-  async approveFacultyAdmin(adminId: string, approverName: string): Promise<void> {
+  async approveFacultyAdmin(
+    adminId: string,
+    approverName: string,
+    initialPermissions?: { authorizedYears?: string[]; authorizedClasses?: string[] }
+  ): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    if (!currentUser || currentUser.role !== 'HOD') {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) can approve faculty administrators.');
+    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+    const isDeptApprover = currentUser?.adminData?.isDepartmentApprover === true;
+    const approverDept = currentUser?.adminData?.department;
+
+    if (!currentUser || (!isHod && !isDeptApprover)) {
+      throw new Error('Unauthorized: Only the Head of Department (HOD) or an authorized Department Approver can approve faculty applications.');
     }
 
     if (currentUser.uid === adminId) {
@@ -238,7 +262,17 @@ export const adminService = {
       throw new Error('This administrator is already approved.');
     }
 
-    await updateDoc(adminDocRef, {
+    if (!isHod && targetAdminData.department !== approverDept) {
+      throw new Error(
+        `Department boundary error: As the ${approverDept} approver, you cannot approve applicants from ${targetAdminData.department || 'other departments'}.`
+      );
+    }
+
+    const cleanYears = initialPermissions?.authorizedYears
+      ? (initialPermissions.authorizedYears.map(normalizeAcademicYear).filter(Boolean) as string[])
+      : (targetAdminData.authorizedYears || []);
+
+    const updatePayload: any = {
       approvalStatus: 'APPROVED',
       approvedAt: serverTimestamp(),
       approvedBy: approverName,
@@ -246,7 +280,16 @@ export const adminService = {
       role: 'ADMIN',
       isActive: true,
       updatedAt: serverTimestamp()
-    });
+    };
+
+    if (cleanYears.length > 0) {
+      updatePayload.authorizedYears = cleanYears;
+    }
+    if (initialPermissions?.authorizedClasses) {
+      updatePayload.authorizedClasses = initialPermissions.authorizedClasses;
+    }
+
+    await updateDoc(adminDocRef, updatePayload);
 
     // Write immutable audit log
     const auditLogRef = doc(collection(db, 'audit_logs'));
@@ -255,7 +298,7 @@ export const adminService = {
       actorUid: currentUser.uid,
       actorEmail: currentUser.email,
       actorName: approverName,
-      actorRole: 'HOD',
+      actorRole: isHod ? 'HOD' : 'DEPT_APPROVER',
       targetUid: adminId,
       targetEmail: targetAdminData.email,
       targetName: targetAdminData.name,
@@ -266,7 +309,8 @@ export const adminService = {
       details: {
         department: targetAdminData.department,
         designation: targetAdminData.designation,
-        facultyId: targetAdminData.facultyId
+        facultyId: targetAdminData.facultyId,
+        authorizedYears: cleanYears
       }
     };
     await setDoc(auditLogRef, auditLogData);
@@ -283,7 +327,9 @@ export const adminService = {
               approvedBy: approverName,
               approvedAt: new Date().toISOString(),
               role: 'ADMIN',
-              isActive: true
+              isActive: true,
+              authorizedYears: cleanYears.length > 0 ? cleanYears : a.authorizedYears,
+              authorizedClasses: initialPermissions?.authorizedClasses || a.authorizedClasses
             }
           : a
       )
@@ -291,16 +337,20 @@ export const adminService = {
   },
 
   /**
-   * Reject a pending faculty coordinator application (HOD only)
+   * Reject a pending faculty coordinator application (HOD or designated Department Approver)
    */
   async rejectFacultyAdmin(adminId: string, reason?: string): Promise<void> {
     const currentUser = useAppStore.getState().currentUser;
-    if (!currentUser || currentUser.role !== 'HOD') {
-      throw new Error('Unauthorized: Only the Head of Department (HOD) can reject faculty applications.');
+    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+    const isDeptApprover = currentUser?.adminData?.isDepartmentApprover === true;
+    const approverDept = currentUser?.adminData?.department;
+
+    if (!currentUser || (!isHod && !isDeptApprover)) {
+      throw new Error('Unauthorized: Only the Head of Department (HOD) or an authorized Department Approver can decline faculty applications.');
     }
 
     if (currentUser.uid === adminId) {
-      throw new Error('Invalid operation: Users cannot reject their own account.');
+      throw new Error('Invalid operation: Users cannot decline their own account.');
     }
 
     const adminDocRef = doc(db, 'admins', adminId);
@@ -310,6 +360,12 @@ export const adminService = {
     }
 
     const targetAdminData = adminSnap.data() as Admin;
+
+    if (!isHod && targetAdminData.department !== approverDept) {
+      throw new Error(
+        `Department boundary error: As the ${approverDept} approver, you cannot decline applicants from ${targetAdminData.department || 'other departments'}.`
+      );
+    }
 
     await updateDoc(adminDocRef, {
       approvalStatus: 'REJECTED',
@@ -475,6 +531,272 @@ export const adminService = {
     useAppStore.setState({
       admins: currentAdmins.map((a) =>
         a.uid === adminId ? { ...a, isActive: true, accountStatus: 'active' as any } : a
+      )
+    });
+  },
+
+  /**
+   * Designate or revoke Department Approver status for an approved faculty member (HOD only)
+   */
+  async toggleDepartmentApprover(adminId: string, isApprover: boolean): Promise<void> {
+    const currentUser = useAppStore.getState().currentUser;
+    if (!currentUser || currentUser.role !== 'HOD') {
+      throw new Error('Unauthorized: Only the Head of Department (HOD) can designate department approvers.');
+    }
+
+    const currentAdmins = useAppStore.getState().admins;
+    const target = currentAdmins.find((a) => a.uid === adminId);
+    if (!target) {
+      throw new Error('Administrator record not found.');
+    }
+
+    if (target.approvalStatus !== 'APPROVED') {
+      throw new Error('Only approved faculty members can be designated as Department Approvers.');
+    }
+
+    const adminDocRef = doc(db, 'admins', adminId);
+    await updateDoc(adminDocRef, {
+      isDepartmentApprover: isApprover,
+      departmentApproverScope: isApprover ? target.department : null,
+      updatedAt: serverTimestamp()
+    });
+
+    // Write audit log
+    const auditLogRef = doc(collection(db, 'audit_logs'));
+    const auditLogData: AuditLog = {
+      id: auditLogRef.id,
+      actorUid: currentUser.uid,
+      actorEmail: currentUser.email,
+      actorName: currentUser.adminData?.name || 'Head of Department',
+      actorRole: 'HOD',
+      targetUid: adminId,
+      targetEmail: target.email,
+      targetName: target.name,
+      action: isApprover ? 'DEPT_APPROVER_DESIGNATED' : 'DEPT_APPROVER_REVOKED',
+      timestamp: serverTimestamp(),
+      details: {
+        department: target.department,
+        isDepartmentApprover: isApprover
+      }
+    };
+    await setDoc(auditLogRef, auditLogData);
+    useAppStore.getState().addAuditLog(auditLogData);
+
+    useAppStore.setState({
+      admins: currentAdmins.map((a) =>
+        a.uid === adminId
+          ? {
+              ...a,
+              isDepartmentApprover: isApprover,
+              departmentApproverScope: isApprover ? target.department : undefined
+            }
+          : a
+      )
+    });
+  },
+
+  /**
+   * Update Faculty/Admin profile details (self-service for faculty or administrative edit by HOD)
+   * Enforces that users cannot modify their own department, role, approvalStatus, or authorized academic scope.
+   */
+  async updateAdminProfile(
+    adminId: string,
+    updates: {
+      name: string;
+      designation?: string;
+      phone?: string;
+      researchSpecialization?: string;
+      customSpecialization?: string;
+      researchInterests?: string[];
+    }
+  ): Promise<void> {
+    const currentUser = useAppStore.getState().currentUser;
+    if (!currentUser) {
+      throw new Error('Authentication required.');
+    }
+
+    const isSelf = currentUser.uid === adminId;
+    const isHod = currentUser.role === 'HOD' || currentUser.adminData?.isHod === true;
+
+    if (!isSelf && !isHod) {
+      throw new Error('Unauthorized: You can only edit your own profile or manage profiles as HOD.');
+    }
+
+    const adminDocRef = doc(db, 'admins', adminId);
+    const adminSnap = await getDoc(adminDocRef);
+    if (!adminSnap.exists()) {
+      throw new Error('Administrator record not found.');
+    }
+    const currentData = adminSnap.data() as Admin;
+
+    const cleanName = updates.name.trim();
+    if (!cleanName) {
+      throw new Error('Administrator name cannot be empty.');
+    }
+
+    const docUpdates: any = {
+      name: cleanName,
+      updatedAt: serverTimestamp()
+    };
+
+    if (updates.designation !== undefined) {
+      docUpdates.designation = updates.designation.trim();
+    }
+    if (updates.phone !== undefined) {
+      docUpdates.phone = updates.phone.trim();
+    }
+
+    // Dynamic Research Specialization Validation
+    if (updates.researchSpecialization !== undefined) {
+      const cleanSpec = updates.researchSpecialization.trim();
+      if (cleanSpec) {
+        if (!isValidSpecialization(currentData.department, cleanSpec)) {
+          throw new Error(`Specialization "${cleanSpec}" is not valid for department "${currentData.department}".`);
+        }
+        docUpdates.researchSpecialization = cleanSpec;
+
+        if (cleanSpec === 'Other') {
+          const sanitizedCustom = sanitizeCustomSpecialization(updates.customSpecialization || '');
+          if (!sanitizedCustom || sanitizedCustom.length < 3) {
+            throw new Error('Please provide a specific custom research specialization (at least 3 characters).');
+          }
+          docUpdates.customSpecialization = sanitizedCustom;
+        } else {
+          docUpdates.customSpecialization = null;
+        }
+      } else {
+        docUpdates.researchSpecialization = null;
+        docUpdates.customSpecialization = null;
+      }
+    }
+
+    if (updates.researchInterests !== undefined) {
+      docUpdates.researchInterests = updates.researchInterests;
+    }
+
+    await updateDoc(adminDocRef, docUpdates);
+
+    // Update in-memory store
+    const currentAdmins = useAppStore.getState().admins;
+    useAppStore.setState({
+      admins: currentAdmins.map((a) =>
+        a.uid === adminId
+          ? {
+              ...a,
+              name: cleanName,
+              designation: docUpdates.designation !== undefined ? docUpdates.designation : a.designation,
+              phone: docUpdates.phone !== undefined ? docUpdates.phone : a.phone,
+              researchSpecialization: docUpdates.researchSpecialization !== undefined ? docUpdates.researchSpecialization : a.researchSpecialization,
+              customSpecialization: docUpdates.customSpecialization !== undefined ? docUpdates.customSpecialization : a.customSpecialization,
+              researchInterests: docUpdates.researchInterests !== undefined ? docUpdates.researchInterests : a.researchInterests
+            }
+          : a
+      )
+    });
+
+    if (isSelf && currentUser.adminData) {
+      useAppStore.setState({
+        currentUser: {
+          ...currentUser,
+          adminData: {
+            ...currentUser.adminData,
+            name: cleanName,
+            designation: docUpdates.designation !== undefined ? docUpdates.designation : currentUser.adminData.designation,
+            phone: docUpdates.phone !== undefined ? docUpdates.phone : currentUser.adminData.phone,
+            researchSpecialization: docUpdates.researchSpecialization !== undefined ? docUpdates.researchSpecialization : currentUser.adminData.researchSpecialization,
+            customSpecialization: docUpdates.customSpecialization !== undefined ? docUpdates.customSpecialization : currentUser.adminData.customSpecialization,
+            researchInterests: docUpdates.researchInterests !== undefined ? docUpdates.researchInterests : currentUser.adminData.researchInterests
+          }
+        }
+      });
+    }
+  },
+
+  /**
+   * Assign or update faculty authorized academic years and classes (HOD only)
+   */
+  async updateFacultyPermissions(
+    adminId: string,
+    permissions: {
+      authorizedYears?: string[];
+      authorizedClasses?: string[];
+      department?: string;
+    }
+  ): Promise<void> {
+    const currentUser = useAppStore.getState().currentUser;
+    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+    if (!currentUser || !isHod) {
+      throw new Error('Unauthorized: Only the Head of Department (HOD) can assign faculty academic years and permissions.');
+    }
+
+    const adminDocRef = doc(db, 'admins', adminId);
+    const adminSnap = await getDoc(adminDocRef);
+    if (!adminSnap.exists()) {
+      throw new Error('Administrator record not found.');
+    }
+    const targetData = adminSnap.data() as Admin;
+
+    const docUpdates: any = {
+      updatedAt: serverTimestamp()
+    };
+
+    if (permissions.department !== undefined) {
+      if (!isSupportedDepartment(permissions.department)) {
+        throw new Error(`Invalid department "${permissions.department}".`);
+      }
+      docUpdates.department = permissions.department;
+      // If department changed, clear incompatible specialization
+      if (targetData.researchSpecialization && !isValidSpecialization(permissions.department, targetData.researchSpecialization)) {
+        docUpdates.researchSpecialization = null;
+        docUpdates.customSpecialization = null;
+      }
+    }
+
+    if (permissions.authorizedYears !== undefined) {
+      const cleanYears = permissions.authorizedYears
+        .map(normalizeAcademicYear)
+        .filter(Boolean) as string[];
+      docUpdates.authorizedYears = cleanYears;
+    }
+
+    if (permissions.authorizedClasses !== undefined) {
+      docUpdates.authorizedClasses = permissions.authorizedClasses;
+    }
+
+    await updateDoc(adminDocRef, docUpdates);
+
+    // Write audit log
+    const auditLogRef = doc(collection(db, 'audit_logs'));
+    const auditLogData: AuditLog = {
+      id: auditLogRef.id,
+      actorUid: currentUser.uid,
+      actorEmail: currentUser.email,
+      actorName: currentUser.adminData?.name || 'Head of Department',
+      actorRole: 'HOD',
+      targetUid: adminId,
+      targetEmail: targetData.email,
+      targetName: targetData.name,
+      action: 'FACULTY_PERMISSIONS_UPDATED',
+      timestamp: serverTimestamp(),
+      details: {
+        department: docUpdates.department || targetData.department,
+        authorizedYears: docUpdates.authorizedYears,
+        authorizedClasses: docUpdates.authorizedClasses
+      }
+    };
+    await setDoc(auditLogRef, auditLogData);
+    useAppStore.getState().addAuditLog(auditLogData);
+
+    // Update in-memory store
+    const currentAdmins = useAppStore.getState().admins;
+    useAppStore.setState({
+      admins: currentAdmins.map((a) =>
+        a.uid === adminId
+          ? {
+              ...a,
+              ...docUpdates
+            }
+          : a
       )
     });
   },

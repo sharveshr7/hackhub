@@ -10,6 +10,10 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    function isValidDepartment(dept) {
+      return dept in ['Biotechnology', 'Biomedical Engineering'];
+    }
+
     function isHod() {
       return isAuthenticated() && (
         request.auth.token.role == 'HOD' ||
@@ -50,29 +54,62 @@ service cloud.firestore {
       );
     }
 
-    // Students Collection: Account creation restricted to Administrators/HOD (No self-signup)
-    // Students can read own profile; student directory listing is restricted to administrators.
-    // Students cannot modify their role, registerNumber, accountStatus, or email.
+    function getAdminData() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid)).data;
+    }
+
+    function getAdminDept() {
+      return getAdminData().department;
+    }
+
+    function isDeptApprover(dept) {
+      return isAdmin() && (
+        isHod() ||
+        (
+          getAdminData().isDepartmentApprover == true &&
+          getAdminData().department == dept
+        )
+      );
+    }
+
+    // Students Collection: Account creation restricted to authorized Faculty/HOD within department
+    // Students can read own profile; student directory listing is restricted to administrators within department scope.
+    // Students cannot modify their role, registerNumber, department, accountStatus, or email.
     match /students/{studentId} {
-      allow get: if isOwner(studentId) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (
+      allow get: if isOwner(studentId) || (
+        isAdmin() && (isHod() || resource.data.department == getAdminDept())
+      );
+      allow list: if isHod() || (
+        isAdmin() && resource.data.department == getAdminDept()
+      );
+      allow create: if isHod() || (
+        isAdmin() &&
+        isValidDepartment(request.resource.data.department) &&
+        request.resource.data.department == getAdminDept()
+      );
+      allow update: if isHod() || (
+        isAdmin() &&
+        resource.data.department == getAdminDept() &&
+        request.resource.data.department == resource.data.department
+      ) || (
         isOwner(studentId) &&
         (!('role' in request.resource.data) || request.resource.data.role == resource.data.role) &&
         (!('registerNumber' in request.resource.data) || request.resource.data.registerNumber == resource.data.registerNumber) &&
         (!('registrationNumberNormalized' in request.resource.data) || request.resource.data.registrationNumberNormalized == resource.data.registrationNumberNormalized) &&
+        (!('department' in request.resource.data) || request.resource.data.department == resource.data.department) &&
         (!('isActive' in request.resource.data) || request.resource.data.isActive == resource.data.isActive) &&
         (!('accountStatus' in request.resource.data) || request.resource.data.accountStatus == resource.data.accountStatus) &&
         (!('email' in request.resource.data) || request.resource.data.email == resource.data.email)
       );
-      allow delete: if isAdmin();
+      allow delete: if isHod() || (
+        isAdmin() && resource.data.department == getAdminDept()
+      );
     }
 
     // Admins Collection: Read allowed for own profile or approved admin/HOD
     // Create allowed for:
     // 1) An approved HOD/admin, OR
-    // 2) A faculty applicant registering their own profile with approvalStatus == 'PENDING'
+    // 2) A faculty applicant registering their own profile with approvalStatus == 'PENDING' in a supported department
     match /admins/{adminId} {
       allow get: if isOwner(adminId) || isAdmin();
       allow list: if isAdmin();
@@ -82,15 +119,34 @@ service cloud.firestore {
         request.resource.data.approvalStatus == 'PENDING' &&
         request.resource.data.role != 'HOD' &&
         (!('isHod' in request.resource.data) || request.resource.data.isHod != true) &&
+        (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover != true) &&
+        isValidDepartment(request.resource.data.department) &&
         !exists(/databases/$(database)/documents/students/$(request.auth.uid))
       );
       allow update: if (
-        isHod() && !(isOwner(adminId) && resource.data.approvalStatus != 'APPROVED' && request.resource.data.approvalStatus == 'APPROVED')
-      ) || (
-        isOwner(adminId) && isAdmin() &&
-        request.resource.data.role == resource.data.role &&
-        request.resource.data.approvalStatus == resource.data.approvalStatus &&
-        (!('isHod' in request.resource.data) || request.resource.data.isHod == resource.data.isHod)
+        // 1. HOD can update any administrator (preventing self-approval)
+        (isHod() && !(isOwner(adminId) && resource.data.approvalStatus != 'APPROVED' && request.resource.data.approvalStatus == 'APPROVED')) ||
+        // 2. Designated Department Approver can approve/reject pending faculty in their own department
+        (
+          !isOwner(adminId) &&
+          isDeptApprover(resource.data.department) &&
+          request.resource.data.department == resource.data.department &&
+          request.resource.data.role in ['ADMIN', 'admin'] &&
+          request.resource.data.approvalStatus in ['APPROVED', 'REJECTED'] &&
+          (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover == resource.data.isDepartmentApprover) &&
+          (!('isHod' in request.resource.data) || request.resource.data.isHod != true)
+        ) ||
+        // 3. Admin updating own contact/profile details: CANNOT alter role, department, approvalStatus, isDepartmentApprover, or authorized academic scope
+        (
+          isOwner(adminId) && isAdmin() &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.department == resource.data.department &&
+          request.resource.data.approvalStatus == resource.data.approvalStatus &&
+          (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover == resource.data.isDepartmentApprover) &&
+          (!('isHod' in request.resource.data) || request.resource.data.isHod == resource.data.isHod) &&
+          (!('authorizedYears' in request.resource.data) || request.resource.data.authorizedYears == resource.data.authorizedYears) &&
+          (!('authorizedClasses' in request.resource.data) || request.resource.data.authorizedClasses == resource.data.authorizedClasses)
+        )
       );
       allow delete: if isHod() && !isOwner(adminId);
     }
@@ -98,7 +154,7 @@ service cloud.firestore {
     // Registration Lookups: Single document lookup by normalized registration number
     // Public directory enumeration is forbidden (list: false).
     // Direct client access is restricted so unauthenticated users cannot harvest student emails.
-    // Sensitive lookup resolution is moved to trusted backend (/api/student-auth).
+    // Sensitive lookup resolution is handled by trusted backend (/api/student-auth).
     match /reg_lookups/{regNo} {
       allow get: if isAdmin();
       allow list: if false;
@@ -119,40 +175,82 @@ service cloud.firestore {
           'PUBLISHED', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'LIVE', 'COMPLETED', 'CANCELLED', 'SUBMISSION_CLOSED',
           'published', 'registration_open', 'registration_closed', 'live', 'completed', 'cancelled', 'submission_closed'
         ] ||
-        (resource.data.status != 'DRAFT' && resource.data.status != 'draft') ||
-        isAdmin();
+        (
+          (resource.data.status != 'DRAFT' && resource.data.status != 'draft')
+        ) ||
+        isHod() ||
+        (
+          isAdmin() && (
+            resource.data.department == getAdminDept() ||
+            resource.data.publishedBy == request.auth.uid ||
+            !('department' in resource.data) ||
+            resource.data.department == 'ALL'
+          )
+        );
       allow create: if isAdmin() &&
         request.resource.data.title is string && request.resource.data.title.size() > 0 &&
         request.resource.data.organizer is string && request.resource.data.organizer.size() > 0 &&
-        request.resource.data.shortDescription is string && request.resource.data.shortDescription.size() > 0;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+        request.resource.data.shortDescription is string && request.resource.data.shortDescription.size() > 0 &&
+        (isHod() || !('department' in request.resource.data) || request.resource.data.department in [getAdminDept(), 'ALL']);
+      allow update: if isHod() || (
+        isAdmin() && (
+          resource.data.publishedBy == request.auth.uid ||
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data) ||
+          resource.data.department == 'ALL'
+        ) &&
+        (!('department' in request.resource.data) || request.resource.data.department in [resource.data.department, getAdminDept(), 'ALL'])
+      );
+      allow delete: if isHod() || (
+        isAdmin() && (
+          resource.data.publishedBy == request.auth.uid ||
+          resource.data.department == getAdminDept()
+        )
+      );
     }
 
-    // Registrations Collection: Students manage own registrations; cannot read other students' private registrations
+    // Registrations Collection: Students manage own registrations; faculty access scoped to department
     match /registrations/{registrationId} {
-      allow read: if isAuthenticated() && (
-        resource.data.studentId == request.auth.uid || isAdmin()
-      );
+      allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) ||
+        isHod() ||
+        (
+          isAdmin() && (
+            resource.data.department == getAdminDept() ||
+            !('department' in resource.data)
+          )
+        );
       allow create: if isAuthenticated() && (
         (request.resource.data.studentId == request.auth.uid && request.resource.data.status in ['CONFIRMED', 'PENDING', 'REGISTERED']) ||
         isAdmin()
       );
-      allow update: if isAdmin() || (
+      allow update: if isHod() || (
+        isAdmin() && (
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data)
+        )
+      ) || (
         isAuthenticated() &&
         resource.data.studentId == request.auth.uid &&
         (!('studentId' in request.resource.data) || request.resource.data.studentId == resource.data.studentId) &&
         (!('hackathonId' in request.resource.data) || request.resource.data.hackathonId == resource.data.hackathonId) &&
         (!('registrationNumber' in request.resource.data) || request.resource.data.registrationNumber == resource.data.registrationNumber)
       );
-      allow delete: if isAdmin() || (isAuthenticated() && resource.data.studentId == request.auth.uid);
+      allow delete: if isHod() || (
+        isAdmin() && (
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data)
+        )
+      ) || (isAuthenticated() && resource.data.studentId == request.auth.uid);
     }
 
-    // Teams Collection: Read restricted to team members & administrators.
-    // Create allowed for squad leader. Update allowed for squad leader or existing member.
-    // Delete restricted to squad leader or administrator.
+    // Teams Collection: Read restricted to team members & administrators within department
     match /teams/{teamId} {
-      allow read: if isAdmin() || (
+      allow read: if isHod() || (
+        isAdmin() && (
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data)
+        )
+      ) || (
         isAuthenticated() && (
           resource.data.leaderId == request.auth.uid ||
           (resource.data.memberIds != null && request.auth.uid in resource.data.memberIds)
@@ -161,7 +259,12 @@ service cloud.firestore {
       allow create: if isAuthenticated() &&
         request.resource.data.leaderId == request.auth.uid &&
         (request.resource.data.memberIds == null || request.auth.uid in request.resource.data.memberIds);
-      allow update: if isAdmin() || (
+      allow update: if isHod() || (
+        isAdmin() && (
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data)
+        )
+      ) || (
         isAuthenticated() && (
           (resource.data.leaderId == request.auth.uid && request.resource.data.hackathonId == resource.data.hackathonId) ||
           (
@@ -172,15 +275,21 @@ service cloud.firestore {
           )
         )
       );
-      allow delete: if isAdmin() || (isAuthenticated() && resource.data.leaderId == request.auth.uid);
+      allow delete: if isHod() || (isAuthenticated() && resource.data.leaderId == request.auth.uid);
     }
 
-    // Submissions Collection: Only the submitting student or admin can create/update; evaluation fields protected
+    // Submissions Collection: Submitting student or department admin can read/update; evaluation fields protected
     match /submissions/{submissionId} {
-      allow read: if isAuthenticated() && (
-        resource.data.submittedBy == request.auth.uid ||
-        resource.data.leaderId == request.auth.uid ||
-        isAdmin()
+      allow read: if (
+        isAuthenticated() && (
+          resource.data.submittedBy == request.auth.uid ||
+          resource.data.leaderId == request.auth.uid
+        )
+      ) || isHod() || (
+        isAdmin() && (
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data)
+        )
       );
       allow create: if isAuthenticated() && (
         (request.resource.data.submittedBy == request.auth.uid || request.resource.data.leaderId == request.auth.uid) ||
@@ -188,7 +297,12 @@ service cloud.firestore {
       ) &&
       request.resource.data.hackathonId is string &&
       request.resource.data.projectTitle is string;
-      allow update: if isAdmin() || (
+      allow update: if isHod() || (
+        isAdmin() && (
+          resource.data.department == getAdminDept() ||
+          !('department' in resource.data)
+        )
+      ) || (
         isAuthenticated() &&
         (resource.data.submittedBy == request.auth.uid || resource.data.leaderId == request.auth.uid) &&
         request.resource.data.submittedBy == resource.data.submittedBy &&
@@ -197,19 +311,17 @@ service cloud.firestore {
         (!('evaluationFeedback' in request.resource.data) || request.resource.data.evaluationFeedback == resource.data.evaluationFeedback) &&
         (!('rank' in request.resource.data) || request.resource.data.rank == resource.data.rank)
       );
-      allow delete: if isAdmin();
+      allow delete: if isHod();
     }
 
-    // Attendance Collection: Students can check in with check-in passcode; cannot modify arbitrarily afterwards
+    // Attendance Collection: Students can check in with check-in passcode; faculty managed by department
     match /attendance/{attendanceId} {
-      allow read: if isAuthenticated() && (
-        resource.data.studentId == request.auth.uid || isAdmin()
+      allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) || isHod() || (
+        isAdmin() && (resource.data.department == getAdminDept() || !('department' in resource.data))
       );
-      allow create: if isAuthenticated() && (
-        request.resource.data.studentId == request.auth.uid || isAdmin()
-      );
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+      allow create: if (isAuthenticated() && request.resource.data.studentId == request.auth.uid) || isAdmin();
+      allow update: if isHod() || (isAdmin() && (resource.data.department == getAdminDept() || !('department' in resource.data)));
+      allow delete: if isHod() || (isAdmin() && (resource.data.department == getAdminDept() || !('department' in resource.data)));
     }
 
     // Announcements Collection: Public read notice board; only admins can publish/remove

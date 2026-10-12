@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../lib/store';
 import { adminService } from '../../services/adminService';
 import { Button } from '../../components/common/Button';
@@ -14,10 +14,24 @@ import {
   X
 } from 'lucide-react';
 import { Registration, RegistrationStatus } from '../../types';
+import {
+  SUPPORTED_DEPARTMENTS,
+  SUPPORTED_ACADEMIC_YEARS,
+  normalizeAcademicYear
+} from '../../constants/departments';
 
 export const AdminRegistrationsPage: React.FC = () => {
-  const { registrations, students, hackathons, teams, submissions } = useAppStore();
+  const { registrations, students, hackathons, teams, submissions, currentUser } = useAppStore();
   const { addToast } = useToast();
+
+  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+  const facultyDept = currentUser?.adminData?.department;
+  const authorizedYears = currentUser?.adminData?.authorizedYears;
+
+  const normalizedAuthorizedYears = useMemo(() => {
+    if (!authorizedYears || authorizedYears.length === 0) return null;
+    return authorizedYears.map(normalizeAcademicYear).filter(Boolean);
+  }, [authorizedYears]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHackathon, setSelectedHackathon] = useState('ALL');
@@ -28,23 +42,35 @@ export const AdminRegistrationsPage: React.FC = () => {
   const [viewRegistration, setViewRegistration] = useState<Registration | null>(null);
   const [selectedRegistrationIds, setSelectedRegistrationIds] = useState<string[]>([]);
 
-  const departments = [
-    'Biomedical Engineering',
-    'Computer Science & Engineering',
-    'Information Technology',
-    'Electronics & Communication',
-    'Electrical & Electronics',
-    'Mechanical Engineering'
-  ];
+  const departments = isHod ? SUPPORTED_DEPARTMENTS : (facultyDept ? [facultyDept] : SUPPORTED_DEPARTMENTS);
+  const years = SUPPORTED_ACADEMIC_YEARS;
 
   const filteredRegistrations = registrations.filter((reg) => {
     const student = students.find((s) => s.uid === reg.studentId);
     const hackathon = hackathons.find((h) => h.id === reg.hackathonId);
     const team = teams.find((t) => t.id === reg.teamId);
 
+    // Strict faculty scope enforcement
+    if (!isHod && facultyDept) {
+      if (student && student.department !== facultyDept) return false;
+      if (normalizedAuthorizedYears && normalizedAuthorizedYears.length > 0) {
+        if (!student?.year) return false;
+        const normY = normalizeAcademicYear(student.year);
+        if (!normY || !normalizedAuthorizedYears.includes(normY)) return false;
+      }
+    }
+
     if (selectedHackathon !== 'ALL' && reg.hackathonId !== selectedHackathon) return false;
     if (selectedDepartment !== 'ALL' && student?.department !== selectedDepartment) return false;
-    if (selectedYear !== 'ALL' && String(student?.year) !== selectedYear) return false;
+    if (selectedYear !== 'ALL') {
+      const normSelected = normalizeAcademicYear(selectedYear);
+      const normStudent = normalizeAcademicYear(student?.year);
+      if (normSelected && normStudent) {
+        if (normSelected !== normStudent) return false;
+      } else if (String(student?.year) !== selectedYear) {
+        return false;
+      }
+    }
     if (selectedTeamFilter === 'HAS_TEAM' && !reg.teamId) return false;
     if (selectedTeamFilter === 'NO_TEAM' && reg.teamId) return false;
     if (selectedStatus !== 'ALL') {
@@ -184,11 +210,12 @@ export const AdminRegistrationsPage: React.FC = () => {
               onChange={(e) => setSelectedYear(e.target.value)}
               className="py-1.5 px-2.5 rounded-lg border border-slate-300 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-600"
             >
-              <option value="ALL">All Years</option>
-              <option value="1">1st Year</option>
-              <option value="2">2nd Year</option>
-              <option value="3">3rd Year</option>
-              <option value="4">4th Year</option>
+              <option value="ALL">All Academic Years</option>
+              {years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
             </select>
 
             {/* Team filter (Section 23) */}

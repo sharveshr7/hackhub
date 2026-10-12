@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../../lib/store';
 import { submissionService } from '../../services/submissionService';
 import { Button } from '../../components/common/Button';
@@ -31,6 +31,9 @@ export const AdminSubmissionsPage: React.FC = () => {
   const hackathons = useAppStore((state) => state.hackathons);
   const teams = useAppStore((state) => state.teams);
   const students = useAppStore((state) => state.students);
+  const currentUser = useAppStore((state) => state.currentUser);
+  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+  const facultyDept = currentUser?.adminData?.department;
   const { showToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,15 +48,30 @@ export const AdminSubmissionsPage: React.FC = () => {
   const [modalStatus, setModalStatus] = useState<SubmissionStatus>('EVALUATED');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Stats calculation
-  const totalCount = submissions.length;
-  const draftCount = submissions.filter((s) => s.status === 'DRAFT' || s.isDraft).length;
-  const submittedCount = submissions.filter((s) => s.status === 'SUBMITTED').length;
-  const underReviewCount = submissions.filter((s) => s.status === 'UNDER_REVIEW').length;
-  const shortlistedCount = submissions.filter((s) => s.status === 'SHORTLISTED').length;
-  const evaluatedCount = submissions.filter((s) => s.status === 'EVALUATED').length;
+  // Scoped submissions by department
+  const scopedSubmissions = useMemo(() => {
+    if (isHod) return submissions;
+    return submissions.filter((s) => {
+      if (s.department && s.department === facultyDept) return true;
+      const team = teams.find((t) => t.id === s.teamId);
+      if (team && (team as any).department === facultyDept) return true;
+      const student = students.find((std) => std.uid === s.submittedBy);
+      if (student && student.department === facultyDept) return true;
+      const hackathon = hackathons.find((h) => h.id === s.hackathonId);
+      if (hackathon && (hackathon.department === facultyDept || hackathon.publishedBy === currentUser?.uid)) return true;
+      return false;
+    });
+  }, [submissions, isHod, facultyDept, teams, students, hackathons, currentUser]);
 
-  const filteredSubmissions = submissions.filter((s) => {
+  // Stats calculation
+  const totalCount = scopedSubmissions.length;
+  const draftCount = scopedSubmissions.filter((s) => s.status === 'DRAFT' || s.isDraft).length;
+  const submittedCount = scopedSubmissions.filter((s) => s.status === 'SUBMITTED').length;
+  const underReviewCount = scopedSubmissions.filter((s) => s.status === 'UNDER_REVIEW').length;
+  const shortlistedCount = scopedSubmissions.filter((s) => s.status === 'SHORTLISTED').length;
+  const evaluatedCount = scopedSubmissions.filter((s) => s.status === 'EVALUATED').length;
+
+  const filteredSubmissions = scopedSubmissions.filter((s) => {
     if (selectedHackathon !== 'ALL' && s.hackathonId !== selectedHackathon) return false;
     if (selectedStatus !== 'ALL') {
       if (selectedStatus === 'DRAFT' && !s.isDraft && s.status !== 'DRAFT') return false;

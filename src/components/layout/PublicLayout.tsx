@@ -142,14 +142,16 @@ export const PublicLayout: React.FC = () => {
 
             {/* Col 3 */}
             <div>
-              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">Host Departments</h4>
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider mb-4">Supported Departments</h4>
               <ul className="space-y-2.5 text-xs text-slate-400">
-                <li>Computer Science & Engineering</li>
-                <li>Information Technology</li>
-                <li>Biomedical Engineering</li>
-                <li>Electronics & Communication</li>
-                <li>Electrical & Electronics</li>
-                <li>Mechanical Engineering</li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                  Biotechnology
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  Biomedical Engineering
+                </li>
               </ul>
             </div>
 

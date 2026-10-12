@@ -26,13 +26,23 @@ export const AdminAttendancePage: React.FC = () => {
   const { hackathons, registrations, students, currentUser, updateHackathon, updateRegistrationStatus } = useAppStore();
   const { showToast } = useToast();
 
+  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+  const facultyDept = currentUser?.adminData?.department;
+
   const [selectedHackathonId, setSelectedHackathonId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'attended' | 'pending'>('all');
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
+  const scopedHackathons = hackathons.filter((h) => {
+    if (isHod) return true;
+    if (h.department && (h.department === facultyDept || h.department === 'ALL')) return true;
+    if (h.publishedBy === currentUser?.uid) return true;
+    return false;
+  });
+
   // Compute stats per hackathon and totals
-  const hackathonStats = hackathons.map((h) => {
+  const hackathonStats = scopedHackathons.map((h) => {
     const regs = registrations.filter((r) => r.hackathonId === h.id);
     const present = regs.filter((r) => Boolean(r.attendedAt) || r.status === 'ATTENDED').length;
     const absent = Math.max(0, regs.length - present);
@@ -54,6 +64,14 @@ export const AdminAttendancePage: React.FC = () => {
 
   // Filtered registrations for roster table
   const filteredRegistrations = registrations.filter((reg) => {
+    if (!isHod && facultyDept) {
+      const student = students.find((s) => s.uid === reg.studentId);
+      const hackathon = hackathons.find((h) => h.id === reg.hackathonId);
+      const eventDept = hackathon?.department;
+      if (eventDept && eventDept !== facultyDept && eventDept !== 'ALL') return false;
+      if (student && student.department !== facultyDept) return false;
+    }
+
     if (selectedHackathonId !== 'all' && reg.hackathonId !== selectedHackathonId) return false;
     const isPresent = Boolean(reg.attendedAt) || reg.status === 'ATTENDED';
     if (filterStatus === 'attended' && !isPresent) return false;

@@ -105,12 +105,16 @@ export function useFirestoreSync() {
 
     // Authenticated Collections
     if (currentUser) {
-      // 4. Registrations (Students scoped to own records; Administrators see all)
+      const isHod = currentUser.role === 'HOD' || currentUser.adminData?.isHod === true;
+      const facultyDept = currentUser.adminData?.department;
+
+      // 4. Registrations (Students scoped to own records; Administrators scoped to department or all for HOD)
       try {
-        const qRegistrations =
-          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
-            ? query(collection(db, 'registrations'))
-            : query(collection(db, 'registrations'), where('studentId', '==', currentUser.uid));
+        const qRegistrations = isHod
+          ? query(collection(db, 'registrations'))
+          : currentUser.role === 'ADMIN' && facultyDept
+          ? query(collection(db, 'registrations'), where('department', '==', facultyDept))
+          : query(collection(db, 'registrations'), where('studentId', '==', currentUser.uid));
         const unsub = onSnapshot(
           qRegistrations,
           (snapshot) => {
@@ -129,12 +133,13 @@ export function useFirestoreSync() {
         console.warn('Failed to attach registrations listener:', e);
       }
 
-      // 5. Teams (Administrators see all; students scoped to own squads)
+      // 5. Teams (Students scoped to own squads; Administrators scoped to department or all for HOD)
       try {
-        const qTeams =
-          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
-            ? query(collection(db, 'teams'))
-            : query(collection(db, 'teams'), where('memberIds', 'array-contains', currentUser.uid));
+        const qTeams = isHod
+          ? query(collection(db, 'teams'))
+          : currentUser.role === 'ADMIN' && facultyDept
+          ? query(collection(db, 'teams'), where('department', '==', facultyDept))
+          : query(collection(db, 'teams'), where('memberIds', 'array-contains', currentUser.uid));
         const unsub = onSnapshot(
           qTeams,
           (snapshot) => {
@@ -153,12 +158,13 @@ export function useFirestoreSync() {
         console.warn('Failed to attach teams listener:', e);
       }
 
-      // 6. Submissions (Students scoped to own submissions; Administrators see all)
+      // 6. Submissions (Students scoped to own submissions; Administrators scoped to department or all for HOD)
       try {
-        const qSubmissions =
-          currentUser.role === 'ADMIN' || currentUser.role === 'HOD'
-            ? query(collection(db, 'submissions'))
-            : query(collection(db, 'submissions'), where('submittedBy', '==', currentUser.uid));
+        const qSubmissions = isHod
+          ? query(collection(db, 'submissions'))
+          : currentUser.role === 'ADMIN' && facultyDept
+          ? query(collection(db, 'submissions'), where('department', '==', facultyDept))
+          : query(collection(db, 'submissions'), where('submittedBy', '==', currentUser.uid));
         const unsub = onSnapshot(
           qSubmissions,
           (snapshot) => {
@@ -210,10 +216,14 @@ export function useFirestoreSync() {
         console.warn('Failed to attach notifications listener:', e);
       }
 
-      // 8. Students (Admin & HOD)
+      // 8. Students (Admin & HOD: scoped to faculty department or all for HOD)
       if (currentUser.role === 'ADMIN' || currentUser.role === 'HOD') {
         try {
-          const qStudents = query(collection(db, 'students'));
+          const qStudents = isHod
+            ? query(collection(db, 'students'))
+            : facultyDept
+            ? query(collection(db, 'students'), where('department', '==', facultyDept))
+            : query(collection(db, 'students'));
           const unsub = onSnapshot(
             qStudents,
             (snapshot) => {

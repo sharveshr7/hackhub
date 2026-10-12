@@ -20,17 +20,11 @@ import {
   GraduationCap
 } from 'lucide-react';
 
-const DEPARTMENTS = [
-  'Computer Science & Engineering',
-  'Information Technology',
-  'Artificial Intelligence & Data Science',
-  'Electronics & Communication Engineering',
-  'Electrical & Electronics Engineering',
-  'Mechanical Engineering',
-  'Biomedical Engineering',
-  'Science & Humanities',
-  'Directorate of Student Innovation'
-];
+import {
+  SUPPORTED_DEPARTMENTS,
+  getSpecializationsForDepartment,
+  SupportedDepartment
+} from '../../constants/departments';
 
 const DESIGNATIONS = [
   'Faculty Coordinator',
@@ -48,10 +42,21 @@ export const AdminSignupPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [phone, setPhone] = useState('');
-  const [department, setDepartment] = useState(DEPARTMENTS[0]);
+  const [department, setDepartment] = useState<SupportedDepartment>(SUPPORTED_DEPARTMENTS[0]);
+  const [specialization, setSpecialization] = useState<string>(
+    getSpecializationsForDepartment(SUPPORTED_DEPARTMENTS[0])[0] || ''
+  );
+  const [customSpecialization, setCustomSpecialization] = useState('');
   const [designation, setDesignation] = useState(DESIGNATIONS[0]);
   const [facultyId, setFacultyId] = useState('');
   const institution = 'KalaignarKarunanidhi Institute Of Technology';
+
+  const handleDepartmentChange = (newDept: SupportedDepartment) => {
+    setDepartment(newDept);
+    const specs = getSpecializationsForDepartment(newDept);
+    setSpecialization(specs[0] || '');
+    setCustomSpecialization('');
+  };
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -112,6 +117,12 @@ export const AdminSignupPage: React.FC = () => {
       return;
     }
 
+    // 7. Research Specialization validation
+    if (specialization === 'Other' && customSpecialization.trim().length < 3) {
+      setError('Please specify your custom research specialization (at least 3 characters).');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -123,7 +134,9 @@ export const AdminSignupPage: React.FC = () => {
         department,
         designation,
         facultyId: facultyId.trim(),
-        institution
+        institution,
+        researchSpecialization: specialization,
+        customSpecialization: specialization === 'Other' ? customSpecialization.trim() : undefined
       });
 
       showToast(
@@ -267,11 +280,11 @@ export const AdminSignupPage: React.FC = () => {
                   </div>
                   <select
                     value={department}
-                    onChange={(e) => setDepartment(e.target.value)}
+                    onChange={(e) => handleDepartmentChange(e.target.value as SupportedDepartment)}
                     required
                     className="w-full rounded-lg border border-slate-300 text-sm py-2.5 pl-10 pr-4 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy-900/10 focus:border-navy-900"
                   >
-                    {DEPARTMENTS.map((dept) => (
+                    {SUPPORTED_DEPARTMENTS.map((dept) => (
                       <option key={dept} value={dept}>
                         {dept}
                       </option>
@@ -302,6 +315,49 @@ export const AdminSignupPage: React.FC = () => {
                   </select>
                 </div>
               </div>
+            </div>
+
+            {/* Row 3.5: Research Specialization (Department-Specific) */}
+            <div className="space-y-3 p-3.5 bg-slate-50/80 rounded-xl border border-slate-200/80">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Research Specialization ({department}) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <GraduationCap className="w-4 h-4" />
+                  </div>
+                  <select
+                    value={specialization}
+                    onChange={(e) => setSpecialization(e.target.value)}
+                    required
+                    className="w-full rounded-lg border border-slate-300 text-sm py-2.5 pl-10 pr-4 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-navy-900/10 focus:border-navy-900"
+                  >
+                    {getSpecializationsForDepartment(department).map((spec) => (
+                      <option key={spec} value={spec}>
+                        {spec}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Select your primary academic domain within {department}.
+                </p>
+              </div>
+
+              {specialization === 'Other' && (
+                <div>
+                  <Input
+                    label="Custom Research Specialization"
+                    type="text"
+                    value={customSpecialization}
+                    onChange={(e) => setCustomSpecialization(e.target.value)}
+                    placeholder="e.g. Nanobiotechnology & Drug Delivery"
+                    required
+                    helperText="Specify your precise specialized research focus (minimum 3 characters)"
+                  />
+                </div>
+              )}
             </div>
 
             {/* Row 4: Password & Confirm Password */}

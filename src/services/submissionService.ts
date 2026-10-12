@@ -103,12 +103,14 @@ export const submissionService = {
 
     const subId = data.id || `sub_${data.hackathonId}_${data.teamId}`;
     const nowIso = new Date().toISOString();
+    const currentStudent = useAppStore.getState().currentUser?.studentData;
 
     const submissionDoc: Submission = {
       id: subId,
       hackathonId: data.hackathonId,
       teamId: data.teamId,
       teamName: data.teamName,
+      department: data.department || currentStudent?.department || '',
       projectTitle: data.projectTitle || 'Untitled Prototype',
       problemStatementId: data.problemStatementId || '',
       problemStatementTitle: data.problemStatementTitle || 'General Track',

@@ -16,9 +16,16 @@ import {
   Ban,
   RotateCcw,
   Eye,
-  Filter
+  Filter,
+  Award
 } from 'lucide-react';
 import { Admin } from '../../types';
+import {
+  SUPPORTED_DEPARTMENTS,
+  isSupportedDepartment,
+  getDepartmentBadge,
+  SUPPORTED_ACADEMIC_YEARS
+} from '../../constants/departments';
 
 export const HodAdministratorsPage: React.FC = () => {
   const { admins, currentUser } = useAppStore();
@@ -27,18 +34,29 @@ export const HodAdministratorsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('ALL');
   const [selectedAdmin, setSelectedAdmin] = useState<Admin | null>(null);
-  const [actionType, setActionType] = useState<'DEACTIVATE' | 'REACTIVATE' | 'VIEW' | null>(null);
+  const [actionType, setActionType] = useState<'DEACTIVATE' | 'REACTIVATE' | 'VIEW' | 'EDIT_SCOPE' | null>(null);
+  const [editYears, setEditYears] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const departments = [
-    'Biomedical Engineering',
-    'Computer Science & Engineering',
-    'Information Technology',
-    'Electronics & Communication Engineering',
-    'Electrical & Electronics Engineering',
-    'Mechanical Engineering'
-  ];
+  const departments = SUPPORTED_DEPARTMENTS;
+
+  const handleToggleApprover = async (targetAdmin: Admin) => {
+    setIsProcessing(true);
+    try {
+      const newStatus = !targetAdmin.isDepartmentApprover;
+      await adminService.toggleDepartmentApprover(targetAdmin.uid, newStatus);
+      showToast(
+        'success',
+        newStatus ? 'Department Approver Designated' : 'Department Approver Revoked',
+        `${targetAdmin.name} has been ${newStatus ? 'designated as an authorized' : 'removed as a'} department approver for ${targetAdmin.department}.`
+      );
+    } catch (err: any) {
+      showToast('error', 'Update Failed', err.message || 'Could not update approver role.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // List of approved administrators
   const approvedAdmins = useMemo(() => {
@@ -100,6 +118,29 @@ export const HodAdministratorsPage: React.FC = () => {
       setSelectedAdmin(null);
     } catch (err: any) {
       setActionError(err.message || 'Failed to reactivate administrator.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSaveAcademicScope = async () => {
+    if (!selectedAdmin) return;
+    setIsProcessing(true);
+    setActionError(null);
+
+    try {
+      await adminService.updateFacultyPermissions(selectedAdmin.uid, {
+        authorizedYears: editYears
+      });
+      showToast(
+        'success',
+        'Academic Permissions Updated',
+        `Academic monitoring scope for ${selectedAdmin.name} set to ${editYears.length > 0 ? editYears.join(', ') : 'All Academic Years'}.`
+      );
+      setActionType(null);
+      setSelectedAdmin(null);
+    } catch (err: any) {
+      setActionError(err.message || 'Failed to update academic scope.');
     } finally {
       setIsProcessing(false);
     }
@@ -182,17 +223,48 @@ export const HodAdministratorsPage: React.FC = () => {
                       <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">
                         {adm.facultyId || 'ADMIN'}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-700 font-medium">
-                        {adm.department}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getDepartmentBadge(adm.department).className}`}>
+                            {adm.department}
+                          </span>
+                          {!isSupportedDepartment(adm.department) && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              Needs Review
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-700">
-                        {adm.designation}
+                        <div>{adm.designation}</div>
+                        {adm.researchSpecialization && (
+                          <div className="text-[11px] text-slate-500 font-medium pt-0.5">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Research: </span>
+                            {adm.researchSpecialization === 'Other'
+                              ? (adm.customSpecialization || 'Other')
+                              : adm.researchSpecialization}
+                          </div>
+                        )}
+                        {adm.authorizedYears && adm.authorizedYears.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                            {adm.authorizedYears.map((yr) => (
+                              <span key={yr} className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                {yr}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3.5 px-4">
                         {isTargetHod ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
                             <Shield className="w-3 h-3 text-amber-600" />
                             HOD
+                          </span>
+                        ) : adm.isDepartmentApprover ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">
+                            <Award className="w-3 h-3 text-indigo-600" />
+                            DEPT APPROVER
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
@@ -225,6 +297,35 @@ export const HodAdministratorsPage: React.FC = () => {
                           >
                             Details
                           </Button>
+
+                          {!isTargetHod && (
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                              onClick={() => {
+                                setSelectedAdmin(adm);
+                                setEditYears(adm.authorizedYears || [...SUPPORTED_ACADEMIC_YEARS]);
+                                setActionType('EDIT_SCOPE');
+                                setActionError(null);
+                              }}
+                            >
+                              Scope
+                            </Button>
+                          )}
+
+                          {!isTargetHod && isSupportedDepartment(adm.department) && (
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className={adm.isDepartmentApprover ? "text-amber-700 border-amber-300 hover:bg-amber-50" : "text-indigo-700 border-indigo-300 hover:bg-indigo-50"}
+                              onClick={() => handleToggleApprover(adm)}
+                              disabled={isProcessing}
+                              leftIcon={<Award className="w-3 h-3" />}
+                            >
+                              {adm.isDepartmentApprover ? 'Revoke Approver' : 'Designate Approver'}
+                            </Button>
+                          )}
 
                           {isDeactivated ? (
                             <Button
@@ -295,6 +396,22 @@ export const HodAdministratorsPage: React.FC = () => {
                 <span className="font-medium text-slate-800">{selectedAdmin.department}</span>
               </div>
               <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <span className="text-slate-500">Research Specialization</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedAdmin.researchSpecialization === 'Other'
+                    ? (selectedAdmin.customSpecialization ? `Other (${selectedAdmin.customSpecialization})` : 'Other')
+                    : (selectedAdmin.researchSpecialization || 'General / Not specified')}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <span className="text-slate-500">Authorized Academic Years</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedAdmin.authorizedYears && selectedAdmin.authorizedYears.length > 0
+                    ? selectedAdmin.authorizedYears.join(', ')
+                    : 'Institution-Wide (All Years)'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
                 <span className="text-slate-500">Designation</span>
                 <span className="font-medium text-slate-800">{selectedAdmin.designation}</span>
               </div>
@@ -318,6 +435,75 @@ export const HodAdministratorsPage: React.FC = () => {
                 }}
               >
                 Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Academic Scope Modal (HOD only) */}
+      {selectedAdmin && actionType === 'EDIT_SCOPE' && (
+        <Modal
+          isOpen={true}
+          onClose={() => !isProcessing && setActionType(null)}
+          title="Configure Faculty Academic Scope"
+          maxWidth="sm"
+        >
+          <div className="p-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Academic-Year Permissions for {selectedAdmin.name}
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Configure student cohort visibility. {selectedAdmin.name} will only be permitted to monitor and access student records in {selectedAdmin.department} for these selected years:
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              {SUPPORTED_ACADEMIC_YEARS.map((yr) => {
+                const isChecked = editYears.includes(yr);
+                return (
+                  <label key={yr} className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEditYears((prev) => [...prev, yr]);
+                        } else {
+                          setEditYears((prev) => prev.filter((y) => y !== yr));
+                        }
+                      }}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>{yr}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {actionError && (
+              <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-700 font-medium">
+                {actionError}
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setActionType(null)}
+                disabled={isProcessing}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                className="flex-1"
+                onClick={handleSaveAcademicScope}
+                isLoading={isProcessing}
+              >
+                Save Permissions
               </Button>
             </div>
           </div>

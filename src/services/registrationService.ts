@@ -84,6 +84,7 @@ export const registrationService = {
     }
 
     // 4. Create real registration record
+    const nowIso = new Date().toISOString();
     const regId = `reg_${Date.now()}_${Math.floor(100 + Math.random() * 900)}`;
     const randNum = Math.floor(1000 + Math.random() * 9000);
     const isExt = Boolean(
@@ -91,12 +92,16 @@ export const registrationService = {
       (hackathon.organizerType && hackathon.organizerType !== 'OUR_COLLEGE')
     );
     const registrationNumber = isExt ? `EXT-TRACK-${randNum}` : `HACK-2026-${randNum}`;
-    const nowIso = new Date().toISOString();
+    const currentStudent =
+      useAppStore.getState().currentUser?.studentData ||
+      useAppStore.getState().students.find((s) => s.uid === studentId);
+    const studentDept = currentStudent?.department || hackathon?.department || '';
 
     const newReg: Registration = {
       id: regId,
       hackathonId,
       studentId,
+      department: studentDept,
       registrationNumber,
       status: 'CONFIRMED',
       isExternal: isExt,
@@ -113,6 +118,7 @@ export const registrationService = {
       id: regId,
       hackathonId,
       studentId,
+      department: studentDept,
       registrationNumber,
       status: 'CONFIRMED',
       isExternal: isExt,

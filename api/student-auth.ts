@@ -697,8 +697,7 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
       if (lookupDoc.exists) {
         targetEmail = (lookupDoc.data() as any)?.email || '';
         console.log(`[StudentAuth] Registration mapping found for registration number.`);
-      } else {
-        console.log(`[StudentAuth] Registration number not found in reg_lookups.`);
+        console.log(`[StudentAuth] Registration mapping check completed.`);
       }
     } catch (lookupErr: any) {
       console.error('[StudentAuth] Server registration lookup failure:', lookupErr.message);
@@ -749,10 +748,10 @@ export async function handleStudentAuth(body: { identifier?: string; password?: 
         const studentDoc = await adminInstances.adminDb.collection('students').doc(authData.localId).get();
         if (studentDoc.exists) {
           const studentData = studentDoc.data() as any;
-          if (studentData.accountStatus === 'disabled' || studentData.isActive === false) {
+          if (studentData.accountStatus === 'disabled' || studentData.isActive === false || studentData.approvalStatus === 'PENDING') {
             return {
               status: 403,
-              body: { error: 'This student account has been deactivated. Please contact college administration.' }
+              body: { error: 'Account is disabled or pending administrative verification. Please contact college administration.' }
             };
           }
         }

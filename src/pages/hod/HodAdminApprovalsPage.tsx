@@ -21,6 +21,12 @@ import {
   UserCheck
 } from 'lucide-react';
 import { Admin } from '../../types';
+import {
+  SUPPORTED_DEPARTMENTS,
+  isSupportedDepartment,
+  getDepartmentBadge,
+  SUPPORTED_ACADEMIC_YEARS
+} from '../../constants/departments';
 
 export const HodAdminApprovalsPage: React.FC = () => {
   const { admins, currentUser } = useAppStore();
@@ -35,15 +41,9 @@ export const HodAdminApprovalsPage: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [assignedYears, setAssignedYears] = useState<string[]>([...SUPPORTED_ACADEMIC_YEARS]);
 
-  const departments = [
-    'Biomedical Engineering',
-    'Computer Science & Engineering',
-    'Information Technology',
-    'Electronics & Communication Engineering',
-    'Electrical & Electronics Engineering',
-    'Mechanical Engineering'
-  ];
+  const departments = SUPPORTED_DEPARTMENTS;
 
   // Real pending faculty applications from Firestore
   const pendingApplications = useMemo(() => {
@@ -71,9 +71,17 @@ export const HodAdminApprovalsPage: React.FC = () => {
     setIsProcessing(true);
     setActionError(null);
 
+    if (!isSupportedDepartment(selectedAdmin.department)) {
+      setActionError(`Cannot approve applicant with unsupported department "${selectedAdmin.department}". HackHub strictly supports Biotechnology and Biomedical Engineering.`);
+      setIsProcessing(false);
+      return;
+    }
+
     try {
       const approverName = currentUser?.adminData?.name || 'Head of Department';
-      await adminService.approveFacultyAdmin(selectedAdmin.uid, approverName);
+      await adminService.approveFacultyAdmin(selectedAdmin.uid, approverName, {
+        authorizedYears: assignedYears
+      });
       showToast(
         'success',
         'Administrator Approved',
@@ -194,11 +202,28 @@ export const HodAdminApprovalsPage: React.FC = () => {
                     <td className="py-3.5 px-4 font-mono font-semibold text-slate-700">
                       {app.facultyId || 'Not specified'}
                     </td>
-                    <td className="py-3.5 px-4 text-slate-700 font-medium">
-                      {app.department}
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getDepartmentBadge(app.department).className}`}>
+                          {app.department}
+                        </span>
+                        {!isSupportedDepartment(app.department) && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                            Unsupported Dept
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 text-slate-700">
-                      {app.designation}
+                      <div>{app.designation}</div>
+                      {app.researchSpecialization && (
+                        <div className="text-[11px] text-slate-500 font-medium pt-0.5">
+                          <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Research: </span>
+                          {app.researchSpecialization === 'Other'
+                            ? (app.customSpecialization || 'Other')
+                            : app.researchSpecialization}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 text-slate-500 font-mono text-[11px]">
                       {app.createdAt?.toDate
@@ -227,6 +252,7 @@ export const HodAdminApprovalsPage: React.FC = () => {
                           className="bg-emerald-600 hover:bg-emerald-700 text-white border-none"
                           onClick={() => {
                             setSelectedAdmin(app);
+                            setAssignedYears([...SUPPORTED_ACADEMIC_YEARS]);
                             setActionType('APPROVE');
                             setActionError(null);
                           }}
@@ -288,6 +314,14 @@ export const HodAdminApprovalsPage: React.FC = () => {
                 <span className="font-medium text-slate-800">{selectedAdmin.department}</span>
               </div>
               <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <span className="text-slate-500">Research Specialization</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedAdmin.researchSpecialization === 'Other'
+                    ? (selectedAdmin.customSpecialization ? `Other (${selectedAdmin.customSpecialization})` : 'Other')
+                    : (selectedAdmin.researchSpecialization || 'General / Not specified')}
+                </span>
+              </div>
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
                 <span className="text-slate-500">Designation</span>
                 <span className="font-medium text-slate-800">{selectedAdmin.designation}</span>
               </div>
@@ -320,7 +354,10 @@ export const HodAdminApprovalsPage: React.FC = () => {
                 variant="primary"
                 size="sm"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white border-none"
-                onClick={() => setActionType('APPROVE')}
+                onClick={() => {
+                  setAssignedYears([...SUPPORTED_ACADEMIC_YEARS]);
+                  setActionType('APPROVE');
+                }}
               >
                 Proceed to Approve
               </Button>
@@ -347,6 +384,38 @@ export const HodAdminApprovalsPage: React.FC = () => {
               <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                 You are approving <strong>{selectedAdmin.name}</strong> ({selectedAdmin.email}) as a verified faculty coordinator for <strong>{selectedAdmin.department}</strong>.
               </p>
+            </div>
+
+            {/* Academic-Year Permission Assignment */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <label className="block text-xs font-bold text-slate-800">
+                Authorized Academic-Year Scope:
+              </label>
+              <p className="text-[11px] text-slate-500">
+                Select which student cohort years this coordinator is permitted to monitor:
+              </p>
+              <div className="space-y-1.5 pt-1">
+                {SUPPORTED_ACADEMIC_YEARS.map((yr) => {
+                  const isChecked = assignedYears.includes(yr);
+                  return (
+                    <label key={yr} className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setAssignedYears((prev) => [...prev, yr]);
+                          } else {
+                            setAssignedYears((prev) => prev.filter((y) => y !== yr));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>{yr}</span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             {actionError && (

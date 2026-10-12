@@ -26,10 +26,25 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Student } from '../../types';
+import {
+  SUPPORTED_DEPARTMENTS,
+  getDepartmentBadge,
+  SUPPORTED_ACADEMIC_YEARS,
+  normalizeAcademicYear
+} from '../../constants/departments';
 
 export const AdminStudentsPage: React.FC = () => {
-  const { students, registrations, teams, hackathons, submissions, certificates } = useAppStore();
+  const { students, registrations, teams, hackathons, submissions, certificates, currentUser } = useAppStore();
   const { addToast } = useToast();
+
+  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+  const facultyDept = currentUser?.adminData?.department;
+  const authorizedYears = currentUser?.adminData?.authorizedYears;
+
+  const normalizedAuthorizedYears = useMemo(() => {
+    if (!authorizedYears || authorizedYears.length === 0) return null;
+    return authorizedYears.map(normalizeAcademicYear).filter(Boolean);
+  }, [authorizedYears]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDept, setSelectedDept] = useState('ALL');
@@ -45,29 +60,36 @@ export const AdminStudentsPage: React.FC = () => {
   const [provName, setProvName] = useState('');
   const [provRegNo, setProvRegNo] = useState('');
   const [provEmail, setProvEmail] = useState('');
-  const [provDept, setProvDept] = useState('Computer Science & Engineering');
-  const [provYear, setProvYear] = useState('1st Year');
+  const [provDept, setProvDept] = useState(facultyDept || SUPPORTED_DEPARTMENTS[0]);
+  const [provYear, setProvYear] = useState<string>(SUPPORTED_ACADEMIC_YEARS[0]);
   const [provPhone, setProvPhone] = useState('');
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState<string | null>(null);
 
-  const departments = [
-    'Biomedical Engineering',
-    'Computer Science & Engineering',
-    'Information Technology',
-    'Electronics & Communication',
-    'Electrical & Electronics',
-    'Mechanical Engineering',
-    'Artificial Intelligence & Data Science'
-  ];
+  const departments = isHod ? SUPPORTED_DEPARTMENTS : (facultyDept ? [facultyDept] : SUPPORTED_DEPARTMENTS);
+  const years = SUPPORTED_ACADEMIC_YEARS;
 
-  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+  // Restrict student dataset according to faculty department and authorized academic years
+  const scopedStudents = useMemo(() => {
+    if (isHod) return students;
+    return students.filter((s) => {
+      // Must match faculty department
+      if (facultyDept && s.department !== facultyDept) return false;
+      // If authorizedYears is configured, must match assigned academic years
+      if (normalizedAuthorizedYears && normalizedAuthorizedYears.length > 0) {
+        if (!s.year) return false;
+        const normY = normalizeAcademicYear(s.year);
+        if (!normY || !normalizedAuthorizedYears.includes(normY)) return false;
+      }
+      return true;
+    });
+  }, [students, isHod, facultyDept, normalizedAuthorizedYears]);
 
   // Enrich each student with participation statistics
   const enrichedStudents = useMemo(() => {
     const now = new Date();
 
-    return students.map((s) => {
+    return scopedStudents.map((s) => {
       const studentRegs = registrations.filter((r) => r.studentId === s.uid);
       const studentTeams = teams.filter((t) => t.members.some((m) => m.studentId === s.uid));
       const studentTeamIds = new Set(studentTeams.map((t) => t.id));
@@ -117,7 +139,7 @@ export const AdminStudentsPage: React.FC = () => {
         hasEvaluated
       };
     });
-  }, [students, registrations, teams, hackathons, submissions, certificates]);
+  }, [scopedStudents, registrations, teams, hackathons, submissions, certificates]);
 
   // Apply Section 8 Filters
   const filteredRecords = useMemo(() => {
@@ -126,7 +148,15 @@ export const AdminStudentsPage: React.FC = () => {
       if (selectedDept !== 'ALL' && s.department !== selectedDept) return false;
 
       // Year filter
-      if (selectedYear !== 'ALL' && s.year !== selectedYear) return false;
+      if (selectedYear !== 'ALL') {
+        const normSelected = normalizeAcademicYear(selectedYear);
+        const normStudent = normalizeAcademicYear(s.year);
+        if (normSelected && normStudent) {
+          if (normSelected !== normStudent) return false;
+        } else if (s.year !== selectedYear) {
+          return false;
+        }
+      }
 
       // Hackathon filter
       if (selectedHackathonId !== 'ALL') {
@@ -432,8 +462,26 @@ export const AdminStudentsPage: React.FC = () => {
                       {s.registerNumber}
                     </td>
 
-                    <td className="py-3 px-4 text-slate-600 truncate max-w-[150px]" title={s.department}>
-                      {s.department}
+                    <td className="py-3 px-4 text-slate-600">
+                      {(() => {
+                        const badge = getDepartmentBadge(s.department);
+                        if (!badge.isValid) {
+                          return (
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200"
+                              title={`Legacy/Unsupported department: ${s.department || 'None'}`}
+                            >
+                              <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>Requires Review</span>
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${badge.colorClass}`}>
+                            {badge.name}
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     <td className="py-3 px-4 text-slate-600 font-medium whitespace-nowrap">
@@ -641,12 +689,13 @@ export const AdminStudentsPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Department
+                Department {!isHod && <span className="text-[10px] text-slate-500 font-normal">(Locked to your department)</span>}
               </label>
               <select
                 value={provDept}
                 onChange={(e) => setProvDept(e.target.value)}
-                className="w-full py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium"
+                disabled={!isHod}
+                className="w-full py-2 px-3 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs text-slate-800 font-medium disabled:bg-slate-100 disabled:text-slate-500"
               >
                 {departments.map((dept) => (
                   <option key={dept} value={dept}>

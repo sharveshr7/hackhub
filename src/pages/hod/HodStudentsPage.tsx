@@ -21,6 +21,14 @@ import {
 } from 'lucide-react';
 import { Student } from '../../types';
 
+import {
+  SUPPORTED_DEPARTMENTS,
+  isSupportedDepartment,
+  getDepartmentBadge,
+  SUPPORTED_ACADEMIC_YEARS,
+  normalizeAcademicYear
+} from '../../constants/departments';
+
 export const HodStudentsPage: React.FC = () => {
   const { students } = useAppStore();
   const { showToast } = useToast();
@@ -34,24 +42,17 @@ export const HodStudentsPage: React.FC = () => {
   const [provName, setProvName] = useState('');
   const [provRegNo, setProvRegNo] = useState('');
   const [provEmail, setProvEmail] = useState('');
-  const [provDept, setProvDept] = useState('Biomedical Engineering');
-  const [provYear, setProvYear] = useState('1st Year');
+  const [provDept, setProvDept] = useState<string>(SUPPORTED_DEPARTMENTS[0]);
+  const [provYear, setProvYear] = useState<string>(SUPPORTED_ACADEMIC_YEARS[0]);
   const [provPhone, setProvPhone] = useState('');
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState<string | null>(null);
 
   const [viewStudent, setViewStudent] = useState<Student | null>(null);
 
-  const departments = [
-    'Biomedical Engineering',
-    'Computer Science & Engineering',
-    'Information Technology',
-    'Electronics & Communication Engineering',
-    'Electrical & Electronics Engineering',
-    'Mechanical Engineering'
-  ];
+  const departments = SUPPORTED_DEPARTMENTS;
 
-  const years = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+  const years = SUPPORTED_ACADEMIC_YEARS;
 
   const filteredStudents = useMemo(() => {
     return students.filter((s) => {
@@ -63,7 +64,11 @@ export const HodStudentsPage: React.FC = () => {
         s.email.toLowerCase().includes(q);
 
       const matchesDept = selectedDept === 'ALL' || s.department === selectedDept;
-      const matchesYear = selectedYear === 'ALL' || s.year === selectedYear;
+      const matchesYear =
+        selectedYear === 'ALL' ||
+        (normalizeAcademicYear(s.year) && normalizeAcademicYear(selectedYear)
+          ? normalizeAcademicYear(s.year) === normalizeAcademicYear(selectedYear)
+          : s.year === selectedYear);
 
       return matchesSearch && matchesDept && matchesYear;
     });
@@ -233,8 +238,17 @@ export const HodStudentsPage: React.FC = () => {
                       <td className="py-3.5 px-4 font-mono font-bold text-slate-800">
                         {stu.registerNumber}
                       </td>
-                      <td className="py-3.5 px-4 text-slate-700 font-medium">
-                        {stu.department}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getDepartmentBadge(stu.department).className}`}>
+                            {stu.department}
+                          </span>
+                          {!isSupportedDepartment(stu.department) && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              Needs Review
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-slate-700">
                         {stu.year}

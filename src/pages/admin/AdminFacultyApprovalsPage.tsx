@@ -6,6 +6,7 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { Admin } from '../../types';
+import { SUPPORTED_DEPARTMENTS, isSupportedDepartment, getDepartmentBadge } from '../../constants/departments';
 import {
   Shield,
   UserCheck,
@@ -33,6 +34,18 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
   const { showToast } = useToast();
 
   const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+  const isDeptApprover = currentUser?.adminData?.isDepartmentApprover === true;
+  const approverDept = currentUser?.adminData?.department;
+
+  const canApprove = (admin: Admin) => {
+    if (admin.uid === currentUser?.uid) return false;
+    if (!isSupportedDepartment(admin.department)) return false;
+    if (isHod) return true;
+    if (isDeptApprover && approverDept && admin.department === approverDept) {
+      return true;
+    }
+    return false;
+  };
 
   const [isLoading, setIsLoading] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
@@ -72,14 +85,10 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
     return { total, pending, approved, rejected };
   }, [admins]);
 
-  // Unique departments for filter dropdown
+  // Department options for filter dropdown
   const departments = useMemo(() => {
-    const depts = new Set<string>();
-    admins.forEach((a) => {
-      if (a.department) depts.add(a.department);
-    });
-    return Array.from(depts).sort();
-  }, [admins]);
+    return [...SUPPORTED_DEPARTMENTS];
+  }, []);
 
   // Filtered and searched list
   const filteredAdmins = useMemo(() => {
@@ -90,8 +99,12 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
         return false;
       }
 
-      if (selectedDepartment !== 'ALL' && admin.department !== selectedDepartment) {
-        return false;
+      if (selectedDepartment !== 'ALL') {
+        if (selectedDepartment === 'UNSUPPORTED') {
+          if (isSupportedDepartment(admin.department)) return false;
+        } else if (admin.department !== selectedDepartment) {
+          return false;
+        }
       }
 
       if (searchQuery.trim()) {
@@ -111,13 +124,13 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
   }, [admins, filterStatus, selectedDepartment, searchQuery]);
 
   const handleApprove = async (admin: Admin) => {
-    if (!isHod) {
-      showToast('error', 'HOD Permission Required', 'Only the Head of Department (HOD) can approve faculty administrators.');
+    if (!canApprove(admin)) {
+      showToast('error', 'Authorization Error', 'You do not have permission to approve applicants for this department.');
       return;
     }
     try {
       setProcessingAdminId(admin.uid);
-      const approverName = currentUser?.adminData?.name || currentUser?.email || 'Institutional Administrator';
+      const approverName = currentUser?.adminData?.name || currentUser?.email || 'Authorized Administrator';
       await adminService.approveFacultyAdmin(admin.uid, approverName);
       showToast(
         'success',
@@ -134,8 +147,8 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
   };
 
   const handleReject = async (admin: Admin) => {
-    if (!isHod) {
-      showToast('error', 'HOD Permission Required', 'Only the Head of Department (HOD) can decline faculty registrations.');
+    if (!canApprove(admin)) {
+      showToast('error', 'Authorization Error', 'You do not have permission to decline applicants for this department.');
       return;
     }
     try {
@@ -189,23 +202,33 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
       <div className={`p-4 rounded-xl border text-xs flex items-start gap-3 shadow-sm ${
         isHod
           ? 'bg-slate-900 border-slate-800 text-slate-300'
+          : isDeptApprover
+          ? 'bg-cyan-950/20 border-cyan-800/40 text-cyan-200'
           : 'bg-amber-950/20 border-amber-800/40 text-amber-200'
       }`}>
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
           isHod
             ? 'bg-blue-500/20 text-cyan-400 border-blue-500/30'
+            : isDeptApprover
+            ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
             : 'bg-amber-500/20 text-amber-400 border-amber-500/30'
         }`}>
           <Shield className="w-4 h-4" />
         </div>
         <div className="space-y-1">
           <p className="font-bold text-white text-xs">
-            {isHod ? 'Head of Department (HOD) Authorization Console' : 'Read-Only View: Staff Administrator Session'}
+            {isHod
+              ? 'Institutional Governance Console (Head of Department)'
+              : isDeptApprover
+              ? `Authorized Department Approver Console (${approverDept})`
+              : 'Department Faculty Coordinator Console'}
           </p>
           <p className="leading-relaxed text-[11px] opacity-90">
             {isHod
-              ? 'As the Head of Department, you have authority to review pending faculty registrations, grant administrative privileges, or decline applications with audit tracking.'
-              : 'Public faculty registrations remain in a PENDING status until authorized by the Head of Department (HOD). Standard staff administrators can inspect applications in read-only mode, but cannot authorize promotions.'}
+              ? 'As the Head of Department, you have institution-wide authority to review, approve, or reject faculty registrations across all departments, and designate authorized department approvers.'
+              : isDeptApprover
+              ? `You are designated by the HOD as an authorized Department Approver for ${approverDept}. You can review and approve faculty registrations strictly within your department scope.`
+              : 'Pending faculty registrations require approval from the Head of Department (HOD) or your designated Department Approver before administrative tools are unlocked.'}
           </p>
         </div>
       </div>
@@ -411,13 +434,51 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
 
                       {/* Institutional Details */}
                       <td className="py-4 px-4 align-top">
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           <p className="font-semibold text-slate-800 text-xs">
                             {admin.designation || 'Faculty Coordinator'}
                           </p>
-                          <p className="text-slate-500 text-[11px]">
-                            {admin.department || 'Directorate of Innovation'}
-                          </p>
+                          <div>
+                            {(() => {
+                              const badge = getDepartmentBadge(admin.department);
+                              if (!badge.isValid) {
+                                return (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                    <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                                    <span>Requires Review: {badge.name}</span>
+                                  </span>
+                                );
+                              }
+                              return (
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border ${badge.colorClass}`}>
+                                  {badge.name}
+                                </span>
+                              );
+                            })()}
+                          </div>
+                          {admin.isDepartmentApprover && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                              <Shield className="w-3 h-3 text-purple-600 shrink-0" />
+                              <span>Dept Approver</span>
+                            </span>
+                          )}
+                          {admin.researchSpecialization && (
+                            <p className="text-[11px] text-slate-600 font-medium pt-0.5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Research: </span>
+                              {admin.researchSpecialization === 'Other'
+                                ? (admin.customSpecialization || 'Other')
+                                : admin.researchSpecialization}
+                            </p>
+                          )}
+                          {admin.authorizedYears && admin.authorizedYears.length > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                              {admin.authorizedYears.map((yr) => (
+                                <span key={yr} className="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                  {yr}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <p className="text-[10px] text-slate-400 truncate max-w-xs">
                             {admin.institution || 'KalaignarKarunanidhi Institute Of Technology'}
                           </p>
@@ -481,17 +542,24 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
                             <ExternalLink className="w-4 h-4" />
                           </button>
 
-                          {!isHod ? (
-                            <span
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200"
-                              title="Head of Department authorization required to approve or decline faculty"
-                            >
-                              <Shield className="w-3 h-3 text-slate-400" />
-                              <span>HOD Only</span>
-                            </span>
-                          ) : (
+                          {isPending && (
                             <>
-                              {isPending && (
+                              {!isSupportedDepartment(admin.department) ? (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200"
+                                  title="Department is unsupported. Requires review before approval."
+                                >
+                                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                  <span>Review Dept</span>
+                                </span>
+                              ) : isSelf ? (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200"
+                                  title="Self-approval is forbidden."
+                                >
+                                  <span>Self Account</span>
+                                </span>
+                              ) : canApprove(admin) ? (
                                 <>
                                   <button
                                     type="button"
@@ -513,7 +581,17 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
                                     <span>Reject</span>
                                   </button>
                                 </>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200"
+                                  title={`Requires HOD or ${admin.department} approver authorization`}
+                                >
+                                  <Shield className="w-3 h-3 text-slate-400" />
+                                  <span>Approver Only</span>
+                                </span>
                               )}
+                            </>
+                          )}
 
                               {isApproved && !isSelf && (
                                 <button
@@ -537,11 +615,9 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
                                   <span>Re-Approve</span>
                                 </button>
                               )}
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                            </div>
+                          </td>
+                        </tr>
                   );
                 })}
               </tbody>
@@ -605,6 +681,28 @@ export const AdminFacultyApprovalsPage: React.FC = () => {
                   Contact Mobile Number
                 </span>
                 <span className="text-slate-800 font-semibold">{inspectAdmin.phone || 'NOT PROVIDED'}</span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Research Specialization
+                </span>
+                <span className="text-slate-800 font-semibold">
+                  {inspectAdmin.researchSpecialization === 'Other'
+                    ? (inspectAdmin.customSpecialization ? `Other (${inspectAdmin.customSpecialization})` : 'Other')
+                    : (inspectAdmin.researchSpecialization || 'General / Not specified')}
+                </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Authorized Academic Years
+                </span>
+                <span className="text-slate-800 font-semibold">
+                  {inspectAdmin.authorizedYears && inspectAdmin.authorizedYears.length > 0
+                    ? inspectAdmin.authorizedYears.join(', ')
+                    : 'General Department Scope (Pending Specific Year Assignment)'}
+                </span>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">

@@ -72,11 +72,23 @@ export const hackathonService = {
       }
     }
 
+    const currentUser = useAppStore.getState().currentUser;
+    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+    let dept = data.department;
+    if (!dept) {
+      dept = isHod ? 'ALL' : (currentUser?.adminData?.department || 'Biotechnology');
+    } else if (!isHod && dept !== 'ALL' && dept !== currentUser?.adminData?.department) {
+      throw new Error(`Unauthorized: You can only publish events within your department (${currentUser?.adminData?.department}) or institution-wide (ALL).`);
+    }
+
     const now = new Date().toISOString();
     const newHackathon: Hackathon = {
       ...data,
+      department: dept,
       id,
       bannerUrl,
+      publishedBy: data.publishedBy || currentUser?.uid,
+      publisherName: data.publisherName || currentUser?.adminData?.name || 'Faculty Coordinator',
       createdAt: now,
       updatedAt: now
     };
@@ -97,6 +109,23 @@ export const hackathonService = {
    * Update an existing hackathon document in Firestore
    */
   async updateHackathon(id: string, updates: Partial<Hackathon>): Promise<void> {
+    const currentUser = useAppStore.getState().currentUser;
+    const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+    if (!isHod && currentUser?.adminData?.department) {
+      const existing = useAppStore.getState().hackathons.find((h) => h.id === id);
+      if (
+        existing &&
+        existing.department &&
+        existing.department !== 'ALL' &&
+        existing.department !== currentUser.adminData.department &&
+        existing.publishedBy !== currentUser.uid
+      ) {
+        throw new Error(
+          `Unauthorized: You can only edit events within your department scope (${currentUser.adminData.department}).`
+        );
+      }
+    }
+
     await updateDoc(doc(db, 'hackathons', id), {
       ...updates,
       updatedAt: serverTimestamp()

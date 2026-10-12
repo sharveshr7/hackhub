@@ -127,7 +127,9 @@ export interface Hackathon {
   createdAt: string;
   updatedAt: string;
   publishedBy?: string;
+  createdBy?: string;
   publisherName?: string;
+  department?: string; // 'Biotechnology' | 'Biomedical Engineering' | 'ALL'
 }
 
 export interface Student {
@@ -164,10 +166,20 @@ export interface Admin {
   isActive?: boolean;
   isHod?: boolean;
   isFirstAdmin?: boolean;
+  isDepartmentApprover?: boolean; // Designated by HOD to approve applicants for their own department
+  departmentApproverScope?: string;
+  researchSpecialization?: string;
+  customSpecialization?: string;
+  researchInterests?: string[];
+  authorizedYears?: string[]; // e.g. ['First Year', 'Second Year', 'Third Year']
+  authorizedClasses?: string[];
   approvedAt?: any;
   approvedBy?: string;
+  approvedByUid?: string;
   rejectedAt?: any;
   rejectedBy?: string;
+  reviewedByUid?: string;
+  rejectionReason?: string;
   createdAt?: any;
   updatedAt?: any;
 }
@@ -189,7 +201,11 @@ export interface AuditLog {
     | 'ADMIN_REACTIVATED'
     | 'STUDENT_PROVISIONED'
     | 'ROLE_CHANGED'
-    | 'HOD_PROVISIONED';
+    | 'HOD_PROVISIONED'
+    | 'DEPT_APPROVER_DESIGNATED'
+    | 'DEPT_APPROVER_REVOKED'
+    | 'FACULTY_PERMISSIONS_UPDATED'
+    | 'FACULTY_SPECIALIZATION_UPDATED';
   timestamp: any;
   details?: Record<string, any>;
   previousStatus?: string;
@@ -222,6 +238,7 @@ export interface Team {
   leaderId: string;
   members: TeamMember[];
   memberIds?: string[];
+  department?: string;
   status: 'forming' | 'ready' | 'locked' | 'confirmed' | 'CONFIRMED';
   createdAt: string;
   updatedAt?: string;
@@ -231,6 +248,7 @@ export interface Registration {
   id: string;
   hackathonId: string;
   studentId: string;
+  department?: string;
   teamId?: string;
   registrationNumber: string; // e.g. "HACK-2026-01482"
   status: RegistrationStatus;
@@ -254,6 +272,7 @@ export interface Submission {
   teamName: string;
   projectTitle: string;
   title?: string;
+  department?: string;
   problemStatementId: string;
   problemStatementTitle: string;
   tagline?: string;

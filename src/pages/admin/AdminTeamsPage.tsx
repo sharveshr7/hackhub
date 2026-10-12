@@ -20,8 +20,11 @@ import { Team } from '../../types';
 import { PageHeader } from '../../components/common/PageHeader';
 
 export const AdminTeamsPage: React.FC = () => {
-  const { teams, hackathons, submissions } = useAppStore();
+  const { teams, hackathons, submissions, currentUser } = useAppStore();
   const { addToast } = useToast();
+
+  const isHod = currentUser?.role === 'HOD' || currentUser?.adminData?.isHod === true;
+  const facultyDept = currentUser?.adminData?.department;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedHackathon, setSelectedHackathon] = useState('ALL');
@@ -31,6 +34,13 @@ export const AdminTeamsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const filteredTeams = teams.filter((t) => {
+    // Scoped to faculty department
+    if (!isHod && facultyDept) {
+      const hackathon = hackathons.find((h) => h.id === t.hackathonId);
+      const teamDept = (t as any).department || hackathon?.department;
+      if (teamDept && teamDept !== facultyDept && teamDept !== 'ALL') return false;
+    }
+
     if (selectedHackathon !== 'ALL' && t.hackathonId !== selectedHackathon) return false;
     const q = searchQuery.toLowerCase().trim();
     if (q) {

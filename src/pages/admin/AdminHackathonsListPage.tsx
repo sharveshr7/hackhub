@@ -33,20 +33,36 @@ import {
 } from 'lucide-react';
 import { Hackathon, HackathonStatus } from '../../types';
 import { getOrganizerTypeLabel, getOrganizerBadgeStyle } from '../../utils/eventHelpers';
+import { SUPPORTED_DEPARTMENTS, getDepartmentBadge } from '../../constants/departments';
 
 export const AdminHackathonsListPage: React.FC = () => {
-  const { hackathons, registrations, teams, submissions } = useAppStore();
+  const { currentUser, hackathons, registrations, teams, submissions } = useAppStore();
   const { addToast } = useToast();
+
+  const isHod = currentUser?.role === 'HOD';
+  const facultyDept = currentUser?.adminData?.department || '';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'DRAFT' | 'REG_OPEN' | 'REG_CLOSED' | 'LIVE' | 'COMPLETED'>('ALL');
+  const [deptFilter, setDeptFilter] = useState<'ALL' | 'Biotechnology' | 'Biomedical Engineering' | 'INSTITUTION_WIDE'>('ALL');
 
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [attendanceTarget, setAttendanceTarget] = useState<Hackathon | null>(null);
   const [newAttendanceCode, setNewAttendanceCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  const canManageEvent = (h: Hackathon) => {
+    if (isHod) return true;
+    if (h.createdBy === currentUser?.uid) return true;
+    if (h.department === facultyDept) return true;
+    return false;
+  };
+
   const handleTogglePublish = async (h: Hackathon) => {
+    if (!canManageEvent(h)) {
+      addToast('You can only publish or unpublish events in your own department.', 'error');
+      return;
+    }
     const newStatus: HackathonStatus = h.status === 'DRAFT' ? 'REGISTRATION_OPEN' : 'DRAFT';
     try {
       await hackathonService.updateHackathonStatus(h.id, newStatus);
@@ -62,7 +78,7 @@ export const AdminHackathonsListPage: React.FC = () => {
   };
 
   const filters = [
-    { id: 'ALL', label: 'All' },
+    { id: 'ALL', label: 'All Status' },
     { id: 'DRAFT', label: 'Draft' },
     { id: 'REG_OPEN', label: 'Registration Open' },
     { id: 'REG_CLOSED', label: 'Registration Closed' },
@@ -78,11 +94,23 @@ export const AdminHackathonsListPage: React.FC = () => {
         h.title.toLowerCase().includes(q) ||
         h.organizer.toLowerCase().includes(q) ||
         (h.venue && h.venue.toLowerCase().includes(q)) ||
-        (h.location && h.location.toLowerCase().includes(q));
+        (h.location && h.location.toLowerCase().includes(q)) ||
+        (h.department && h.department.toLowerCase().includes(q));
       if (!match) return false;
     }
 
-    // Filter
+    // Department Filter
+    if (deptFilter === 'Biotechnology' && h.department !== 'Biotechnology') {
+      return false;
+    }
+    if (deptFilter === 'Biomedical Engineering' && h.department !== 'Biomedical Engineering') {
+      return false;
+    }
+    if (deptFilter === 'INSTITUTION_WIDE' && h.department !== 'ALL') {
+      return false;
+    }
+
+    // Status Filter
     const st = String(h.status).toUpperCase();
     if (activeFilter === 'DRAFT') {
       return st === 'DRAFT';
@@ -155,34 +183,78 @@ export const AdminHackathonsListPage: React.FC = () => {
       />
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-        {/* Search */}
-        <div className="relative w-full md:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by title, department, venue..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-600 bg-white"
-          />
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* Search */}
+          <div className="relative w-full md:w-80">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by title, department, venue..."
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-slate-300 focus:outline-none focus:ring-1 focus:ring-blue-600 bg-white"
+            />
+          </div>
+
+          {/* Status Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
+            {filters.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setActiveFilter(f.id as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                  activeFilter === f.id
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-navy-950 hover:bg-slate-100'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-1">
-          {filters.map((f) => (
+        {/* Department Scope Filter Pills */}
+        <div className="flex items-center gap-2 pt-2 border-t border-slate-100 text-xs">
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+            Department Scope:
+          </span>
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
             <button
-              key={f.id}
-              onClick={() => setActiveFilter(f.id as any)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                activeFilter === f.id
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:text-navy-950 hover:bg-slate-100'
+              onClick={() => setDeptFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                deptFilter === 'ALL'
+                  ? 'bg-navy-900 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
               }`}
             >
-              {f.label}
+              All Scopes
             </button>
-          ))}
+            {SUPPORTED_DEPARTMENTS.map((dept) => (
+              <button
+                key={dept}
+                onClick={() => setDeptFilter(dept as any)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                  deptFilter === dept
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                }`}
+              >
+                {dept}
+              </button>
+            ))}
+            <button
+              onClick={() => setDeptFilter('INSTITUTION_WIDE')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
+                deptFilter === 'INSTITUTION_WIDE'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              Institution-Wide (ALL)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -220,10 +292,14 @@ export const AdminHackathonsListPage: React.FC = () => {
                   return (
                     <tr key={h.id} className="hover:bg-slate-50 transition-colors">
                       {/* Name & Organizer with Type Badge */}
+                      {/* Name & Organizer with Type Badge & Department Badge */}
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-1.5 mb-1">
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${orgBadgeStyle.bg} ${orgBadgeStyle.text} ${orgBadgeStyle.border}`}>
                             {orgTypeLabel}
+                          </span>
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${h.department === 'ALL' ? 'bg-purple-50 text-purple-700 border-purple-200' : getDepartmentBadge(h.department || '').className}`}>
+                            {h.department === 'ALL' ? 'All Depts' : (h.department || 'All')}
                           </span>
                           {h.category && (
                             <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 uppercase">
@@ -276,18 +352,20 @@ export const AdminHackathonsListPage: React.FC = () => {
                       {/* Actions */}
                       <td className="py-3 px-4 text-right">
                         <div className="inline-flex items-center gap-1.5 justify-end">
-                          {/* Quick Toggle Publish */}
-                          <button
-                            onClick={() => handleTogglePublish(h)}
-                            title={h.status === 'DRAFT' ? 'Publish Opportunity to Live Catalog' : 'Unpublish to Draft'}
-                            className={`p-1 rounded transition-colors ${
-                              h.status === 'DRAFT'
-                                ? 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
-                                : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
-                            }`}
-                          >
-                            {h.status === 'DRAFT' ? <UploadCloud className="w-3.5 h-3.5" /> : <FileDown className="w-3.5 h-3.5" />}
-                          </button>
+                          {/* Quick Toggle Publish - only if authorized to manage */}
+                          {canManageEvent(h) && (
+                            <button
+                              onClick={() => handleTogglePublish(h)}
+                              title={h.status === 'DRAFT' ? 'Publish Opportunity to Live Catalog' : 'Unpublish to Draft'}
+                              className={`p-1 rounded transition-colors ${
+                                h.status === 'DRAFT'
+                                  ? 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
+                                  : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50'
+                              }`}
+                            >
+                              {h.status === 'DRAFT' ? <UploadCloud className="w-3.5 h-3.5" /> : <FileDown className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
 
                           <Link
                             to={`/admin/hackathons/${h.id}`}
@@ -296,13 +374,15 @@ export const AdminHackathonsListPage: React.FC = () => {
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </Link>
-                          <Link
-                            to={`/admin/hackathons/${h.id}?tab=SETTINGS`}
-                            title="Edit Event Details"
-                            className="p-1 text-slate-600 hover:text-indigo-600 rounded hover:bg-indigo-50"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </Link>
+                          {canManageEvent(h) && (
+                            <Link
+                              to={`/admin/hackathons/${h.id}?tab=SETTINGS`}
+                              title="Edit Event Details"
+                              className="p-1 text-slate-600 hover:text-indigo-600 rounded hover:bg-indigo-50"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </Link>
+                          )}
                           <Link
                             to={`/admin/registrations`}
                             title="View Registrations"
@@ -334,13 +414,15 @@ export const AdminHackathonsListPage: React.FC = () => {
                           >
                             <QrCode className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => setDeleteTargetId(h.id)}
-                            title="Delete Hackathon"
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canManageEvent(h) && (
+                            <button
+                              onClick={() => setDeleteTargetId(h.id)}
+                              title="Delete Hackathon"
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-50"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -371,9 +453,12 @@ export const AdminHackathonsListPage: React.FC = () => {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="flex items-center gap-1.5 mb-1">
+                    <div className="flex flex-wrap items-center gap-1.5 mb-1">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${getOrganizerBadgeStyle(h.organizerType, h.organizer).bg} ${getOrganizerBadgeStyle(h.organizerType, h.organizer).text} ${getOrganizerBadgeStyle(h.organizerType, h.organizer).border}`}>
                         {getOrganizerTypeLabel(h.organizerType, h.organizer)}
+                      </span>
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${h.department === 'ALL' ? 'bg-purple-50 text-purple-700 border-purple-200' : getDepartmentBadge(h.department || '').className}`}>
+                        {h.department === 'ALL' ? 'All Depts' : (h.department || 'All')}
                       </span>
                     </div>
                     <Link
@@ -386,16 +471,18 @@ export const AdminHackathonsListPage: React.FC = () => {
                   </div>
                   <div className="flex flex-col items-end gap-1.5">
                     <StatusBadge status={h.status} />
-                    <button
-                      onClick={() => handleTogglePublish(h)}
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer ${
-                        h.status === 'DRAFT'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-slate-100 text-slate-700'
-                      }`}
-                    >
-                      {h.status === 'DRAFT' ? 'Publish' : 'Unpublish'}
-                    </button>
+                    {canManageEvent(h) && (
+                      <button
+                        onClick={() => handleTogglePublish(h)}
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded cursor-pointer ${
+                          h.status === 'DRAFT'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {h.status === 'DRAFT' ? 'Publish' : 'Unpublish'}
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -439,12 +526,14 @@ export const AdminHackathonsListPage: React.FC = () => {
                       <span>Control Center</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </Link>
-                    <Link
-                      to={`/admin/hackathons/${h.id}?tab=SETTINGS`}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
-                    >
-                      Edit
-                    </Link>
+                    {canManageEvent(h) && (
+                      <Link
+                        to={`/admin/hackathons/${h.id}?tab=SETTINGS`}
+                        className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                      >
+                        Edit
+                      </Link>
+                    )}
                     <Link
                       to={`/admin/registrations`}
                       className="text-xs font-semibold text-slate-600 hover:text-blue-600"
@@ -476,13 +565,15 @@ export const AdminHackathonsListPage: React.FC = () => {
                     >
                       <QrCode className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => setDeleteTargetId(h.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {canManageEvent(h) && (
+                      <button
+                        onClick={() => setDeleteTargetId(h.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

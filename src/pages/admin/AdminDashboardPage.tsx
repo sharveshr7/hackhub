@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../../lib/store';
 import {
@@ -14,7 +14,11 @@ import {
   FileText,
   TrendingUp,
   QrCode,
-  Radio
+  Radio,
+  Building2,
+  ShieldAlert,
+  Award,
+  Filter
 } from 'lucide-react';
 import {
   XAxis,
@@ -25,32 +29,73 @@ import {
   Area,
   AreaChart
 } from 'recharts';
+import { SUPPORTED_DEPARTMENTS, isSupportedDepartment, getDepartmentBadge } from '../../constants/departments';
 
 export const AdminDashboardPage: React.FC = () => {
-  const { hackathons, registrations, teams, submissions, students, admins } = useAppStore();
-  const pendingFacultyCount = admins.filter((a) => a.approvalStatus === 'PENDING').length;
+  const { currentUser, hackathons, registrations, teams, submissions, students, admins } = useAppStore();
+  
+  const isHod = currentUser?.role === 'HOD';
+  const facultyDept = currentUser?.adminData?.department || '';
+  const isDeptApprover = Boolean(currentUser?.adminData?.isDepartmentApprover);
 
-  const publishedHackathonsCount = hackathons.filter((h) => h.status !== 'DRAFT').length;
-  const activeHackathonsCount = hackathons.filter(
+  // For HOD: can switch between ALL or specific supported department.
+  // For Faculty: strictly scoped to their authorized department.
+  const [hodDeptFilter, setHodDeptFilter] = useState<'ALL' | 'Biotechnology' | 'Biomedical Engineering'>('ALL');
+  const activeDeptFilter = isHod ? hodDeptFilter : facultyDept;
+
+  const scopedHackathons = useMemo(() => {
+    if (isHod && activeDeptFilter === 'ALL') return hackathons;
+    return hackathons.filter((h) => h.department === 'ALL' || h.department === activeDeptFilter);
+  }, [hackathons, isHod, activeDeptFilter]);
+
+  const scopedRegistrations = useMemo(() => {
+    if (isHod && activeDeptFilter === 'ALL') return registrations;
+    return registrations.filter((r) => r.department === activeDeptFilter);
+  }, [registrations, isHod, activeDeptFilter]);
+
+  const scopedTeams = useMemo(() => {
+    if (isHod && activeDeptFilter === 'ALL') return teams;
+    return teams.filter((t) => t.department === activeDeptFilter);
+  }, [teams, isHod, activeDeptFilter]);
+
+  const scopedSubmissions = useMemo(() => {
+    if (isHod && activeDeptFilter === 'ALL') return submissions;
+    return submissions.filter((s) => s.department === activeDeptFilter);
+  }, [submissions, isHod, activeDeptFilter]);
+
+  const scopedStudents = useMemo(() => {
+    if (isHod && activeDeptFilter === 'ALL') return students;
+    return students.filter((s) => s.department === activeDeptFilter);
+  }, [students, isHod, activeDeptFilter]);
+
+  const pendingFacultyCount = admins.filter((a) => {
+    if (a.approvalStatus !== 'PENDING') return false;
+    if (isHod) return true;
+    if (isDeptApprover) return a.department === facultyDept;
+    return false;
+  }).length;
+
+  const publishedHackathonsCount = scopedHackathons.filter((h) => h.status !== 'DRAFT').length;
+  const activeHackathonsCount = scopedHackathons.filter(
     (h) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN' || h.status === 'PUBLISHED'
   ).length;
 
-  const totalParticipantsCount = new Set(registrations.map((r) => r.studentId)).size;
-  const totalRegistrationsCount = registrations.length;
-  const activeTeamsCount = teams.length;
-  const pendingSubmissionsCount = submissions.filter((s) => s.isDraft).length + Math.max(0, teams.length - submissions.filter((s) => !s.isDraft).length);
-  const completedAchievementsCount = submissions.filter(
+  const totalParticipantsCount = new Set(scopedRegistrations.map((r) => r.studentId)).size;
+  const totalRegistrationsCount = scopedRegistrations.length;
+  const activeTeamsCount = scopedTeams.length;
+  const pendingSubmissionsCount = scopedSubmissions.filter((s) => s.isDraft).length + Math.max(0, scopedTeams.length - scopedSubmissions.filter((s) => !s.isDraft).length);
+  const completedAchievementsCount = scopedSubmissions.filter(
     (s) => s.status === 'EVALUATED' || s.status === 'SHORTLISTED' || Boolean(s.rank)
   ).length;
 
-  const activeEvent = hackathons.find((h) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN') || hackathons[0];
+  const activeEvent = scopedHackathons.find((h) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN') || scopedHackathons[0];
 
-  // Section 7: Dynamic Participation Monitoring metrics per hackathon
+  // Dynamic Participation Monitoring metrics per hackathon
   const participationMonitoringData = useMemo(() => {
-    return hackathons.map((h) => {
-      const regList = registrations.filter((r) => r.hackathonId === h.id);
-      const teamList = teams.filter((t) => t.hackathonId === h.id);
-      const subList = submissions.filter((s) => s.hackathonId === h.id && !s.isDraft);
+    return scopedHackathons.map((h) => {
+      const regList = scopedRegistrations.filter((r) => r.hackathonId === h.id);
+      const teamList = scopedTeams.filter((t) => t.hackathonId === h.id);
+      const subList = scopedSubmissions.filter((s) => s.hackathonId === h.id && !s.isDraft);
       const pendingSub = Math.max(0, teamList.length - subList.length);
       const completionRate = teamList.length > 0 ? Math.round((subList.length / teamList.length) * 100) : 0;
       const activeParticipants = new Set(regList.map((r) => r.studentId)).size;
@@ -66,7 +111,7 @@ export const AdminDashboardPage: React.FC = () => {
         status: h.status
       };
     });
-  }, [hackathons, registrations, teams, submissions]);
+  }, [scopedHackathons, scopedRegistrations, scopedTeams, scopedSubmissions]);
 
   // Dynamic 14-day registration and team velocity
   const registrationActivity14Days = useMemo(() => {
@@ -79,12 +124,12 @@ export const AdminDashboardPage: React.FC = () => {
       const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
       const dayEnd = dayStart + 24 * 60 * 60 * 1000;
 
-      const regsOnDay = registrations.filter((r) => {
+      const regsOnDay = scopedRegistrations.filter((r) => {
         const t = r.registeredAt ? new Date(r.registeredAt).getTime() : 0;
         return t >= dayStart && t < dayEnd;
       }).length;
 
-      const teamsOnDay = teams.filter((tm) => {
+      const teamsOnDay = scopedTeams.filter((tm) => {
         const t = tm.createdAt ? new Date(tm.createdAt).getTime() : 0;
         return t >= dayStart && t < dayEnd;
       }).length;
@@ -96,12 +141,12 @@ export const AdminDashboardPage: React.FC = () => {
       });
     }
     return days;
-  }, [registrations, teams]);
+  }, [scopedRegistrations, scopedTeams]);
 
   // Dynamic upcoming milestones from Firestore hackathons
   const upcomingDeadlines = useMemo(() => {
     const list: Array<{ id: string; hackathonTitle: string; eventType: string; date: string; tag: string; tagColor: string }> = [];
-    hackathons.forEach((h) => {
+    scopedHackathons.forEach((h) => {
       if (h.registrationDeadline) {
         list.push({
           id: `${h.id}-reg`,
@@ -134,12 +179,12 @@ export const AdminDashboardPage: React.FC = () => {
       }
     });
     return list.slice(0, 4);
-  }, [hackathons]);
+  }, [scopedHackathons]);
 
   // Dynamic recent activity
   const recentActivities = useMemo(() => {
     const list: Array<{ id: string; type: string; description: string; timeAgo: string; badge: string }> = [];
-    submissions.slice(-3).forEach((sub) => {
+    scopedSubmissions.slice(-3).forEach((sub) => {
       list.push({
         id: `sub-${sub.id}`,
         type: 'submission',
@@ -148,7 +193,7 @@ export const AdminDashboardPage: React.FC = () => {
         badge: sub.status
       });
     });
-    teams.slice(-3).forEach((tm) => {
+    scopedTeams.slice(-3).forEach((tm) => {
       list.push({
         id: `team-${tm.id}`,
         type: 'team',
@@ -157,7 +202,7 @@ export const AdminDashboardPage: React.FC = () => {
         badge: 'TEAM'
       });
     });
-    registrations.slice(-4).forEach((reg) => {
+    scopedRegistrations.slice(-4).forEach((reg) => {
       list.push({
         id: `reg-${reg.id}`,
         type: 'attendance',
@@ -167,36 +212,45 @@ export const AdminDashboardPage: React.FC = () => {
       });
     });
     return list.slice(0, 5);
-  }, [submissions, teams, registrations]);
+  }, [scopedSubmissions, scopedTeams, scopedRegistrations]);
 
-  // Dynamic department participation breakdown
+  // Dynamic department participation breakdown (strictly Biotechnology & Biomedical Engineering)
   const departmentParticipation = useMemo(() => {
     const counts: Record<string, number> = {};
-    const studentMap = new Map(students.map((s) => [s.uid, s]));
-    registrations.forEach((r) => {
-      const s = studentMap.get(r.studentId);
-      const dept = s?.department || 'Unassigned';
-      counts[dept] = (counts[dept] || 0) + 1;
+    SUPPORTED_DEPARTMENTS.forEach((dept) => {
+      counts[dept] = 0;
     });
-    const total = registrations.length || 1;
+
+    const studentMap = new Map(scopedStudents.map((s) => [s.uid, s]));
+    scopedRegistrations.forEach((r) => {
+      const s = studentMap.get(r.studentId);
+      const rawDept = r.department || s?.department || 'Unassigned';
+      if (counts[rawDept] !== undefined) {
+        counts[rawDept] += 1;
+      } else {
+        counts[rawDept] = (counts[rawDept] || 0) + 1;
+      }
+    });
+    const total = scopedRegistrations.length || 1;
     return Object.entries(counts).map(([department, count]) => ({
       department,
       count,
-      percentage: Math.round((count / total) * 100)
+      percentage: Math.round((count / total) * 100),
+      isSupported: isSupportedDepartment(department)
     }));
-  }, [registrations, students]);
+  }, [scopedRegistrations, scopedStudents]);
 
   // Dynamic submission status summary
   const submissionStatusSummary = useMemo(() => {
-    const submitted = submissions.filter((s) => !s.isDraft && s.status !== 'EVALUATED').length;
-    const evaluated = submissions.filter((s) => s.status === 'EVALUATED').length;
-    const drafts = submissions.filter((s) => s.isDraft).length;
+    const submitted = scopedSubmissions.filter((s) => !s.isDraft && s.status !== 'EVALUATED').length;
+    const evaluated = scopedSubmissions.filter((s) => s.status === 'EVALUATED').length;
+    const drafts = scopedSubmissions.filter((s) => s.isDraft).length;
     return [
       { status: 'Submitted', count: submitted, color: '#10B981' },
       { status: 'Evaluated', count: evaluated, color: '#3B82F6' },
       { status: 'Drafts', count: drafts, color: '#F59E0B' }
     ];
-  }, [submissions]);
+  }, [scopedSubmissions]);
 
   return (
     <div className="space-y-6">
@@ -233,6 +287,68 @@ export const AdminDashboardPage: React.FC = () => {
             <span>Attendance Desk</span>
           </Link>
         </div>
+      </div>
+
+      {/* DEPARTMENT ACCESS CONTROL & GOVERNANCE SCOPE BAR */}
+      <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 border border-blue-100">
+            <Building2 className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-slate-900">
+                {isHod ? 'Institution Oversight' : `Authorized Scope: ${facultyDept || 'Department'}`}
+              </span>
+              {isDeptApprover && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  <Award className="w-3 h-3 text-indigo-600" />
+                  Department Approver
+                </span>
+              )}
+              {!isHod && facultyDept && (
+                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${getDepartmentBadge(facultyDept).className}`}>
+                  {facultyDept}
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {isHod
+                ? 'Full access across Biotechnology and Biomedical Engineering departments.'
+                : `Private student records, squads, and registrations are strictly scoped to ${facultyDept}.`}
+            </p>
+          </div>
+        </div>
+
+        {/* HOD Department Switcher */}
+        {isHod && (
+          <div className="flex items-center gap-1.5 bg-slate-50 p-1 rounded-xl border border-slate-200 self-start sm:self-auto">
+            <Filter className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
+            <button
+              onClick={() => setHodDeptFilter('ALL')}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                hodDeptFilter === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              All Departments
+            </button>
+            {SUPPORTED_DEPARTMENTS.map((dept) => (
+              <button
+                key={dept}
+                onClick={() => setHodDeptFilter(dept as any)}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-colors ${
+                  hodDeptFilter === dept
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                {dept === 'Biotechnology' ? 'Biotechnology' : 'Biomedical'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* PENDING FACULTY REGISTRATIONS ALERT BANNER */}
@@ -741,7 +857,14 @@ export const AdminDashboardPage: React.FC = () => {
               {departmentParticipation.map((dept) => (
                 <div key={dept.department} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-700">{dept.department}</span>
+                    <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                      {dept.department}
+                      {!dept.isSupported && (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          Unsupported
+                        </span>
+                      )}
+                    </span>
                     <span className="text-slate-500">
                       <strong>{dept.count}</strong> ({dept.percentage}%)
                     </span>

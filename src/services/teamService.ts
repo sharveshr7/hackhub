@@ -102,6 +102,7 @@ export const teamService = {
       name: name.trim(),
       code,
       leaderId: leader.uid,
+      department: leader.department,
       members: [leaderMember],
       memberIds: [leader.uid],
       status: 'CONFIRMED',

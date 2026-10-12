@@ -56,8 +56,8 @@ assert(
 );
 assert(
   rules.includes('match /hackathons/{hackathonId}') &&
-  rules.includes('allow create: if isAdmin()') &&
-  rules.includes('allow update: if isAdmin()'),
+  rules.includes('allow create: if isAdmin() &&') &&
+  rules.includes('allow update: if isHod() || ('),
   'Students cannot publish or update hackathon documents'
 );
 
@@ -77,9 +77,9 @@ console.log('\n[Check 4: Approved Faculty Event Management]');
 assert(
   rules.includes('match /hackathons/{hackathonId}') &&
   rules.includes('allow create: if isAdmin()') &&
-  rules.includes('allow update: if isAdmin()') &&
-  rules.includes('allow delete: if isAdmin()'),
-  'Approved faculty and HOD are authorized to create, update, and delete events'
+  rules.includes('allow update: if isHod() || (') &&
+  rules.includes('allow delete: if isHod() || ('),
+  'Approved faculty and HOD are authorized to create, update, and delete events within department scope'
 );
 
 // 5. HOD can approve/reject applicants
@@ -106,13 +106,14 @@ assert(
 console.log('\n[Check 7: Private Record Confidentiality]');
 assert(
   rules.includes('match /students/{studentId}') &&
-  rules.includes('allow get: if isOwner(studentId) || isAdmin();') &&
-  rules.includes('allow list: if isAdmin();'),
+  rules.includes('allow get: if isOwner(studentId) || (') &&
+  rules.includes('allow list: if isHod() || ('),
   'Students cannot list student directory; can only get their own profile'
 );
 assert(
   rules.includes('match /registrations/{registrationId}') &&
-  rules.includes('resource.data.studentId == request.auth.uid || isAdmin()'),
+  rules.includes('resource.data.studentId == request.auth.uid') &&
+  rules.includes('isAdmin()'),
   'Students cannot read other students\' registrations'
 );
 
@@ -136,7 +137,8 @@ assert(
 // 10. Draft events remain protected
 console.log('\n[Check 10: Draft Events Protection]');
 assert(
-  rules.includes('(resource.data.status != \'DRAFT\' && resource.data.status != \'draft\') ||\n        isAdmin()'),
+  rules.includes('(resource.data.status != \'DRAFT\' && resource.data.status != \'draft\')') &&
+  rules.includes('isAdmin()'),
   'Draft hackathons are restricted to admin access only'
 );
 

@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { useAppStore, CurrentUser } from '../lib/store';
 import { Student, Admin, UserRole } from '../types';
+import { isSupportedDepartment, isValidSpecialization, sanitizeCustomSpecialization } from '../constants/departments';
 
 let studentAuthResolver: ((identifier: string, pass: string) => Promise<{ status: number; data: any }>) | null = null;
 
@@ -80,6 +81,11 @@ export const authService = {
   ): Promise<CurrentUser> {
     const cleanRegNo = studentInfo.registerNumber.trim().toUpperCase();
     const cleanEmail = email.trim().toLowerCase();
+    const cleanDept = studentInfo.department.trim();
+
+    if (!isSupportedDepartment(cleanDept)) {
+      throw new Error(`Invalid department "${cleanDept}". HackHub strictly supports Biotechnology and Biomedical Engineering.`);
+    }
 
     // 1. Create Firebase Auth user first (establishes authentication for Firestore operations)
     let userCredential;
@@ -340,8 +346,30 @@ export const authService = {
     designation: string;
     facultyId: string;
     institution?: string;
+    researchSpecialization?: string;
+    customSpecialization?: string;
   }): Promise<{ uid: string; email: string }> {
     const cleanEmail = adminInfo.email.trim().toLowerCase();
+    const cleanDept = adminInfo.department.trim();
+
+    if (!isSupportedDepartment(cleanDept)) {
+      throw new Error(`Invalid department "${cleanDept}". HackHub strictly supports Biotechnology and Biomedical Engineering.`);
+    }
+
+    let validSpec = adminInfo.researchSpecialization?.trim() || '';
+    let validCustom = '';
+    if (validSpec) {
+      if (!isValidSpecialization(cleanDept, validSpec)) {
+        throw new Error(`Invalid research specialization "${validSpec}" for department ${cleanDept}.`);
+      }
+      if (validSpec === 'Other') {
+        validCustom = sanitizeCustomSpecialization(adminInfo.customSpecialization);
+        if (validCustom.length < 3) {
+          throw new Error('Please specify a valid custom research specialization (at least 3 characters).');
+        }
+      }
+    }
+
     console.log('[AuthService] Initiating faculty registration for:', cleanEmail);
 
     let userCredential;
@@ -408,12 +436,14 @@ export const authService = {
       name: adminInfo.name.trim(),
       email: cleanEmail,
       phone: adminInfo.phone.trim(),
-      department: adminInfo.department.trim(),
+      department: cleanDept,
       designation: adminInfo.designation.trim(),
       facultyId: adminInfo.facultyId.trim(),
       institution: adminInfo.institution?.trim() || 'KalaignarKarunanidhi Institute Of Technology',
       role: 'ADMIN',
-      approvalStatus: 'PENDING'
+      approvalStatus: 'PENDING',
+      ...(validSpec ? { researchSpecialization: validSpec } : {}),
+      ...(validCustom ? { customSpecialization: validCustom } : {})
     };
 
     // 2. Write pending faculty profile to Firestore at admins/{uid}
