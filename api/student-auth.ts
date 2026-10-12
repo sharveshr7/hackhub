@@ -15,9 +15,6 @@
 
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { getApps, initializeApp, cert } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getAuth } from 'firebase-admin/auth';
 
 interface RateLimitEntry {
   attempts: number;
@@ -353,6 +350,17 @@ export async function getAdminInstances() {
 
   let currentStep = 'start';
   try {
+    currentStep = 'import_firebase_admin';
+    const { getApps, initializeApp, cert } = await import('firebase-admin/app');
+    const { getFirestore } = await import('firebase-admin/firestore');
+    let getAuthFn: any = null;
+    try {
+      const authModule = await import('firebase-admin/auth');
+      getAuthFn = authModule.getAuth;
+    } catch {
+      // Optional for Firestore lookups
+    }
+
     currentStep = 'check_existing_apps';
     const expectedProjectId = getExpectedProjectId();
 
@@ -365,16 +373,10 @@ export async function getAdminInstances() {
       }
       try {
         const db = getFirestore(adminApp);
-        let auth: any = null;
-        try {
-          auth = getAuth(adminApp);
-        } catch {
-          // Continue if auth isn't needed immediately
-        }
         cachedAdminInstances = {
           adminApp,
           adminDb: db,
-          adminAuth: auth
+          adminAuth: getAuthFn ? getAuthFn(adminApp) : null
         };
         return cachedAdminInstances;
       } catch {
@@ -425,16 +427,10 @@ export async function getAdminInstances() {
 
       console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
       lastInitError = null;
-      let auth: any = null;
-      try {
-        auth = getAuth(app);
-      } catch (authErr: any) {
-        console.warn('[StudentAuth Diagnostics] getAuth warning:', authErr?.message);
-      }
       cachedAdminInstances = {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: auth
+        adminAuth: getAuthFn ? getAuthFn(app) : null
       };
       return cachedAdminInstances;
     } else {
@@ -476,7 +472,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuth(app)
+        adminAuth: getAuthFn ? getAuthFn(app) : null
       };
     }
 
@@ -498,7 +494,7 @@ export async function getAdminInstances() {
           return {
             adminApp: app,
             adminDb: getFirestore(app),
-            adminAuth: getAuth(app)
+            adminAuth: getAuthFn ? getAuthFn(app) : null
           };
         } catch {
           // Fall back to default initialization
@@ -509,7 +505,7 @@ export async function getAdminInstances() {
       return {
         adminApp: app,
         adminDb: getFirestore(app),
-        adminAuth: getAuth(app)
+        adminAuth: getAuthFn ? getAuthFn(app) : null
       };
     }
 
@@ -562,7 +558,7 @@ export async function getAdminInstances() {
             cachedAdminInstances = {
               adminApp: app,
               adminDb: directDb as any,
-              adminAuth: getAuth(app)
+              adminAuth: getAuthFn ? getAuthFn(app) : null
             };
             return cachedAdminInstances;
           }
