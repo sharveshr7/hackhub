@@ -12,7 +12,7 @@
 
 import fs from 'node:fs';
 
-const BASE_URL = 'https://foceye-2546c.web.app';
+const BASE_URL = process.argv[2] || process.env.TEST_BASE_URL || 'https://foceye-2546c.web.app';
 
 function getDotEnvValue(key) {
   try {
@@ -43,7 +43,7 @@ function assert(condition, testName) {
 async function runDeployedTests() {
   console.log('========================================================================');
   console.log('  HACKHUB — DEPLOYED WEB APPLICATION VERIFICATION');
-  console.log('  Testing live site: https://foceye-2546c.web.app');
+  console.log(`  Testing live site: ${BASE_URL}`);
   console.log('========================================================================\n');
 
   // Test 1: Student Login Page HTTP response
