@@ -207,11 +207,70 @@ export interface AuditLog {
     | 'DEPT_APPROVER_DESIGNATED'
     | 'DEPT_APPROVER_REVOKED'
     | 'FACULTY_PERMISSIONS_UPDATED'
-    | 'FACULTY_SPECIALIZATION_UPDATED';
+    | 'FACULTY_SPECIALIZATION_UPDATED'
+    | 'USER_CREATED'
+    | 'USER_UPDATED'
+    | 'USER_ACTIVATED'
+    | 'USER_DEACTIVATED'
+    | 'USER_DELETED'
+    | 'STUDENT_CREATED'
+    | 'FACULTY_CREATED'
+    | 'ADMIN_CREATED';
   timestamp: any;
   details?: Record<string, any>;
   previousStatus?: string;
   newStatus?: string;
+}
+
+export interface ManagedUser {
+  uid: string;
+  name: string;
+  email: string;
+  role: 'STUDENT' | 'FACULTY' | 'ADMIN';
+  department: string;
+  academicYear?: string;
+  registerNumber?: string;
+  phone?: string;
+  designation?: string;
+  facultyId?: string;
+  researchSpecialization?: string;
+  customSpecialization?: string;
+  status: 'active' | 'inactive' | 'pending' | 'deleted';
+  isActive: boolean;
+  approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  isPlatformAdmin?: boolean;
+  isDepartmentApprover?: boolean;
+  skills?: string[];
+  authorizedYears?: string[];
+  authMetadata?: {
+    disabled?: boolean;
+    emailVerified?: boolean;
+    creationTime?: string;
+    lastSignInTime?: string;
+  } | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UserManagementStats {
+  totalUsers: number;
+  activeUsers: number;
+  inactiveUsers: number;
+  studentCount: number;
+  facultyCount: number;
+}
+
+export interface UserManagementPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface UserManagementListResponse {
+  users: ManagedUser[];
+  stats: UserManagementStats;
+  pagination: UserManagementPagination;
 }
 
 export interface RegistrationLookup {

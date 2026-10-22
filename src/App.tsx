@@ -43,6 +43,7 @@ import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAttendancePage } from './pages/admin/AdminAttendancePage';
 import { AdminFacultyApprovalsPage } from './pages/admin/AdminFacultyApprovalsPage';
+import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 
 
 import { useAuth } from './hooks/useAuth';
@@ -98,6 +99,7 @@ export function App() {
             <Route path="notifications" element={<AdminNotificationsPage />} />
             <Route path="analytics" element={<AdminAnalyticsPage />} />
             <Route path="faculty-approvals" element={<AdminFacultyApprovalsPage />} />
+            <Route path="users" element={<AdminUsersPage />} />
             <Route path="settings" element={<AdminSettingsPage />} />
           </Route>
 

@@ -69,7 +69,7 @@ function getDotEnvValue(key: string): string {
   }
 }
 
-const FIREBASE_API_KEY =
+export const FIREBASE_API_KEY =
   process.env.FIREBASE_WEB_API_KEY ||
   process.env.VITE_FIREBASE_API_KEY ||
   getDotEnvValue('VITE_FIREBASE_API_KEY') ||
@@ -590,6 +590,8 @@ export async function verifyServerRequest(
   department?: string;
   authorizedYears?: string[];
   isPlatformAdministrator?: boolean;
+  isDepartmentApprover?: boolean;
+  name?: string;
   error?: string;
   status: number;
 }> {
@@ -626,10 +628,12 @@ export async function verifyServerRequest(
         status: 200,
         uid,
         email,
+        name: adminData.name || decodedToken.name || '',
         role,
         department: adminData.department,
         authorizedYears: Array.isArray(adminData.authorizedYears) ? adminData.authorizedYears : [],
-        isPlatformAdministrator: adminData.isPlatformAdmin === true
+        isPlatformAdministrator: adminData.isPlatformAdmin === true,
+        isDepartmentApprover: adminData.isDepartmentApprover === true
       };
     }
 
@@ -664,29 +668,29 @@ export async function verifyServerRequest(
   }
 }
 
-const SUPPORTED_STUDENT_DEPARTMENTS = ['Biotechnology', 'Biomedical Engineering'];
-const SUPPORTED_STUDENT_YEARS = ['First Year', 'Second Year', 'Third Year'];
+export const SUPPORTED_STUDENT_DEPARTMENTS = ['Biotechnology', 'Biomedical Engineering'];
+export const SUPPORTED_STUDENT_YEARS = ['First Year', 'Second Year', 'Third Year'];
 
-function normalizeRegistrationNumber(value: unknown): string {
+export function normalizeRegistrationNumber(value: unknown): string {
   return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
 }
 
-function isValidRegistrationNumber(value: string): boolean {
+export function isValidRegistrationNumber(value: string): boolean {
   return /^[A-Z0-9][A-Z0-9-]{2,31}$/.test(value);
 }
 
-function hasStudentRole(student: any): boolean {
+export function hasStudentRole(student: any): boolean {
   return String(student?.role || '').toUpperCase() === 'STUDENT';
 }
 
-function isStudentAccountActive(student: any): boolean {
+export function isStudentAccountActive(student: any): boolean {
   const accountStatus = String(student?.accountStatus || '').toLowerCase();
   if (accountStatus && accountStatus !== 'active') return false;
   if (student?.isActive !== undefined && student.isActive !== true) return false;
   return accountStatus === 'active' || student?.isActive === true;
 }
 
-async function findRegistrationProfiles(db: any, registrationNumber: string, lookupUid?: string) {
+export async function findRegistrationProfiles(db: any, registrationNumber: string, lookupUid?: string) {
   const students = db.collection('students');
   const queries = await Promise.all([
     students.where('registrationNumberNormalized', '==', registrationNumber).get(),
@@ -712,7 +716,7 @@ async function findRegistrationProfiles(db: any, registrationNumber: string, loo
   return profile;
 }
 
-function getAllowedCollegeEmailDomains(): string[] {
+export function getAllowedCollegeEmailDomains(): string[] {
   const configured = (process.env.COLLEGE_EMAIL_DOMAINS || 'kitcbe.com')
     .split(',')
     .map((domain) => domain.trim().toLowerCase().replace(/^@/, ''))

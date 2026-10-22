@@ -188,6 +188,12 @@ service cloud.firestore {
       allow get, list, write: if false;
     }
 
+    // Email Lookups: Map normalized emails to UIDs for student uniqueness
+    // Direct client access is forbidden; managed exclusively by trusted server SDK
+    match /student_email_lookups/{emailDoc} {
+      allow get, list, write: if false;
+    }
+
     // Audit logs are immutable; department approvers can record only completed same-department reviews.
     match /audit_logs/{logId} {
       allow read: if isPlatformAdmin();

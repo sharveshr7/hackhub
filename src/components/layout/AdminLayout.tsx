@@ -106,6 +106,13 @@ export const AdminLayout: React.FC = () => {
   const admin = currentUser.adminData;
 
   const governanceItems: Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }> = [];
+  if (isPlatformAdministrator(currentUser) || isDepartmentApprover(currentUser)) {
+    governanceItems.push({
+      to: '/admin/users',
+      label: 'User Management',
+      icon: <Users className="w-4 h-4" />
+    });
+  }
   if (isDepartmentApprover(currentUser)) {
     governanceItems.push({
       to: '/admin/faculty-approvals',

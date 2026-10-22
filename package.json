@@ -13,6 +13,7 @@
     "verify:excel": "node scripts/verify-excel-exports.mjs",
     "migrate:staff-roles": "node scripts/migrate-legacy-staff-roles.mjs",
     "migrate:attendance-gates": "node scripts/migrate-legacy-attendance-gates.mjs",
+    "verify:user-management": "node scripts/verify-user-management.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

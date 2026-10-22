@@ -3,8 +3,23 @@ import { defineConfig, type Plugin } from 'vite'
 
 function apiDevServerPlugin(): Plugin {
   const handler = async (req: any, res: any, next: any) => {
-    if (req.url?.startsWith('/api/student-auth')) {
-      if (req.method === 'POST') {
+    const isStudentAuth = req.url?.startsWith('/api/student-auth');
+    const isAdminUsers = req.url?.startsWith('/api/admin/users');
+
+    if (isStudentAuth || isAdminUsers) {
+      // Parse query params from URL if not already present
+      if (!req.query && req.url?.includes('?')) {
+        const queryPart = req.url.split('?')[1] || '';
+        const parsedQuery: Record<string, string> = {};
+        for (const [k, v] of new URLSearchParams(queryPart).entries()) {
+          parsedQuery[k] = v;
+        }
+        req.query = parsedQuery;
+      } else if (!req.query) {
+        req.query = {};
+      }
+
+      if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
         try {
           let bodyStr = '';
           for await (const chunk of req) bodyStr += chunk.toString();
@@ -18,7 +33,11 @@ function apiDevServerPlugin(): Plugin {
       }
 
       try {
-        const { default: apiHandler } = await import('./api/student-auth.ts');
+        const apiModule = isStudentAuth
+          ? await import('./api/student-auth.ts')
+          : await import('./api/admin/users.ts');
+        const apiHandler = apiModule.default;
+
         const responseAdapter = {
           setHeader(name: string, value: string) {
             res.setHeader(name, value);
@@ -31,6 +50,10 @@ function apiDevServerPlugin(): Plugin {
           json(payload: unknown) {
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify(payload));
+            return this;
+          },
+          end() {
+            res.end();
             return this;
           }
         };

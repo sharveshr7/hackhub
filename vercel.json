@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/admin/users/:uid/status",
+      "destination": "/api/admin/users?uid=:uid&action=status"
+    },
+    {
+      "source": "/api/admin/users/:uid",
+      "destination": "/api/admin/users?uid=:uid"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
