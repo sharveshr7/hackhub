@@ -12,16 +12,258 @@
  * 8. Comprehensive append-only audit logging for all mutations.
  */
 
-import {
-  getAdminInstances,
-  verifyServerRequest,
-  FIREBASE_API_KEY,
-  SUPPORTED_STUDENT_DEPARTMENTS,
-  SUPPORTED_STUDENT_YEARS,
-  normalizeRegistrationNumber,
-  isValidRegistrationNumber,
-  getAllowedCollegeEmailDomains
-} from '../student-auth.ts';
+const FIREBASE_API_KEY =
+  process.env.FIREBASE_WEB_API_KEY ||
+  process.env.VITE_FIREBASE_API_KEY ||
+  'AIzaSyDola5Yv45cq2h4OgmBPrFar5dUcRUh_as';
+
+const TARGET_PROJECT_ID =
+  process.env.FIREBASE_PROJECT_ID ||
+  process.env.VITE_FIREBASE_PROJECT_ID ||
+  'foceye-2546c';
+
+const SUPPORTED_STUDENT_DEPARTMENTS = ['Biotechnology', 'Biomedical Engineering'];
+const SUPPORTED_STUDENT_YEARS = ['First Year', 'Second Year', 'Third Year'];
+
+function normalizeRegistrationNumber(value: unknown): string {
+  return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function isValidRegistrationNumber(value: string): boolean {
+  return /^[A-Z0-9][A-Z0-9-]{2,31}$/.test(value);
+}
+
+function getAllowedCollegeEmailDomains(): string[] {
+  const configured = (process.env.COLLEGE_EMAIL_DOMAINS || 'kitcbe.com')
+    .split(',')
+    .map((domain) => domain.trim().toLowerCase().replace(/^@/, ''))
+    .filter(Boolean);
+  return configured.length > 0 ? configured : ['kitcbe.com'];
+}
+
+function normalizePrivateKey(rawKey: string): string {
+  let key = (rawKey || '').trim();
+  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
+    key = key.slice(1, -1).trim();
+  }
+  return key
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\r/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\\n/g, '\n');
+}
+
+function parseServiceAccountPayload(rawPayload: string): any {
+  let raw = (rawPayload || '').trim();
+  if (raw.startsWith('```') && raw.endsWith('```')) {
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    raw = raw.slice(1, -1).trim();
+  }
+  if (raw.charCodeAt(0) === 0xFEFF) {
+    raw = raw.slice(1).trim();
+  }
+  if (raw.includes('\\"')) {
+    try {
+      const unescaped = raw.replace(/\\"/g, '"');
+      if (unescaped.startsWith('{')) {
+        return JSON.parse(unescaped);
+      }
+    } catch {}
+  }
+  if (raw.startsWith('{')) {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === 'string' && parsed.trim().startsWith('{')) {
+      return JSON.parse(parsed.trim());
+    }
+    return parsed;
+  }
+  try {
+    const cleanBase64 = raw.replace(/\s+/g, '');
+    let decoded = Buffer.from(cleanBase64, 'base64').toString('utf8').trim();
+    if (decoded.charCodeAt(0) === 0xFEFF) decoded = decoded.slice(1).trim();
+    if (decoded.startsWith('```')) decoded = decoded.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    if ((decoded.startsWith('"') && decoded.endsWith('"')) || (decoded.startsWith("'") && decoded.endsWith("'"))) {
+      decoded = decoded.slice(1, -1).trim();
+    }
+    if (decoded.startsWith('{')) return JSON.parse(decoded);
+  } catch {}
+  throw new Error('Service account string is neither valid JSON nor base64-encoded JSON.');
+}
+
+let mockAdminInstances: any = null;
+let cachedAdminInstances: any = null;
+
+export function setMockAdminInstances(instances: any) {
+  mockAdminInstances = instances;
+}
+
+export function resetMockAdminInstances() {
+  mockAdminInstances = null;
+  cachedAdminInstances = null;
+}
+
+export async function getAdminInstances() {
+  if (mockAdminInstances) return mockAdminInstances;
+  if (cachedAdminInstances) return cachedAdminInstances;
+
+  const { getApps, initializeApp, cert } = await import('firebase-admin/app');
+  const { getFirestore } = await import('firebase-admin/firestore');
+  const { getAuth } = await import('firebase-admin/auth');
+
+  const existingApps = getApps();
+  const adminApp = existingApps.find(a => a.name === 'HackHubAdmin') || null;
+  if (adminApp) {
+    cachedAdminInstances = {
+      adminApp,
+      adminDb: getFirestore(adminApp),
+      adminAuth: getAuth(adminApp)
+    };
+    return cachedAdminInstances;
+  }
+
+  const serviceAccountRaw =
+    process.env.FIREBASE_SERVICE_ACCOUNT ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
+    process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT ||
+    process.env.FIREBASE_ADMIN_KEY ||
+    process.env.SERVICE_ACCOUNT_KEY ||
+    process.env.FIREBASE_CREDENTIALS ||
+    process.env.GOOGLE_SERVICE_ACCOUNT;
+
+  if (serviceAccountRaw) {
+    const serviceAccount = parseServiceAccountPayload(serviceAccountRaw);
+    if (typeof serviceAccount.private_key === 'string') {
+      serviceAccount.private_key = normalizePrivateKey(serviceAccount.private_key);
+    }
+    const app = initializeApp({
+      credential: cert(serviceAccount),
+      projectId: serviceAccount.project_id || serviceAccount.projectId || TARGET_PROJECT_ID
+    }, 'HackHubAdmin');
+    cachedAdminInstances = {
+      adminApp: app,
+      adminDb: getFirestore(app),
+      adminAuth: getAuth(app)
+    };
+    return cachedAdminInstances;
+  }
+
+  const clientEmail =
+    process.env.FIREBASE_CLIENT_EMAIL ||
+    process.env.FIREBASE_ADMIN_CLIENT_EMAIL ||
+    process.env.CLIENT_EMAIL;
+
+  const privateKeyRaw =
+    process.env.FIREBASE_PRIVATE_KEY ||
+    process.env.FIREBASE_ADMIN_PRIVATE_KEY ||
+    process.env.PRIVATE_KEY;
+
+  if (clientEmail && privateKeyRaw) {
+    const privateKey = normalizePrivateKey(privateKeyRaw);
+    const app = initializeApp({
+      credential: cert({
+        projectId: TARGET_PROJECT_ID,
+        clientEmail,
+        privateKey
+      }),
+      projectId: TARGET_PROJECT_ID
+    }, 'HackHubAdmin');
+    cachedAdminInstances = {
+      adminApp: app,
+      adminDb: getFirestore(app),
+      adminAuth: getAuth(app)
+    };
+    return cachedAdminInstances;
+  }
+
+  return null;
+}
+
+export async function verifyServerRequest(
+  authHeader: string | undefined,
+  requiredRole?: 'STUDENT' | 'STAFF' | 'ADMIN'
+): Promise<{
+  valid: boolean;
+  uid?: string;
+  email?: string;
+  role?: string;
+  department?: string;
+  authorizedYears?: string[];
+  isPlatformAdministrator?: boolean;
+  isDepartmentApprover?: boolean;
+  name?: string;
+  error?: string;
+  status: number;
+}> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return {
+      valid: false,
+      status: 401,
+      error: 'Unauthorized: Missing or invalid Bearer authentication header.'
+    };
+  }
+
+  const idToken = authHeader.slice('Bearer '.length).trim();
+  const adminInstances = await getAdminInstances();
+  if (!adminInstances?.adminAuth || !adminInstances.adminDb) {
+    return { valid: false, status: 503, error: 'Server authorization service unavailable: Firebase Admin SDK credentials required.' };
+  }
+
+  try {
+    const decodedToken = await adminInstances.adminAuth.verifyIdToken(idToken, true);
+    const uid = decodedToken.uid;
+    const email = decodedToken.email;
+    const adminDoc = await adminInstances.adminDb.collection('admins').doc(uid).get();
+    if (adminDoc.exists) {
+      const adminData = adminDoc.data() as any;
+      const storedRole = String(adminData.role || '').toUpperCase();
+      if (adminData.approvalStatus !== 'APPROVED' || adminData.isActive === false || adminData.accountStatus === 'deactivated' || !['ADMIN', 'FACULTY'].includes(storedRole)) {
+        return { valid: false, status: 403, error: 'Forbidden: Staff account is not active or approved.' };
+      }
+      const role = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
+      if (requiredRole === 'STUDENT' || (requiredRole === 'ADMIN' && role !== 'ADMIN')) {
+        return { valid: false, status: 403, error: 'Forbidden: This operation is not available to this staff account.' };
+      }
+      return {
+        valid: true,
+        status: 200,
+        uid,
+        email,
+        name: adminData.name || decodedToken.name || '',
+        role,
+        department: adminData.department,
+        authorizedYears: Array.isArray(adminData.authorizedYears) ? adminData.authorizedYears : [],
+        isPlatformAdministrator: adminData.isPlatformAdmin === true,
+        isDepartmentApprover: adminData.isDepartmentApprover === true
+      };
+    }
+
+    const studentDoc = await adminInstances.adminDb.collection('students').doc(uid).get();
+    if (studentDoc.exists) {
+      const studentData = studentDoc.data() as any;
+      const accountStatus = String(studentData?.accountStatus || '').toLowerCase();
+      if (accountStatus && accountStatus !== 'active') return { valid: false, status: 403, error: 'Forbidden: Student account has been deactivated.' };
+      if (studentData?.isActive !== undefined && studentData.isActive !== true) return { valid: false, status: 403, error: 'Forbidden: Student account has been deactivated.' };
+      if (requiredRole && requiredRole !== 'STUDENT') {
+        return { valid: false, status: 403, error: 'Forbidden: Student accounts cannot access staff resources.' };
+      }
+      return { valid: true, status: 200, uid, email, role: 'STUDENT' };
+    }
+
+    return { valid: false, status: 403, error: 'Forbidden: No authorized HackHub profile is linked to this account.' };
+  } catch (err: any) {
+    return {
+      valid: false,
+      status: 401,
+      error: err.code === 'auth/id-token-expired'
+        ? 'Session expired. Please log in again.'
+        : 'Unauthorized: Invalid authentication credentials.'
+    };
+  }
+}
 
 // IP-based Rate Limiter for sensitive User Management operations
 interface RateLimitEntry {

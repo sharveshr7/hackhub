@@ -20,8 +20,11 @@
  * 16. Partial failure rollback, transactional consistency, and rate limiting
  */
 
-import { setMockAdminInstances, resetMockAdminInstances } from '../api/student-auth.ts';
-import usersHandler, { resetUserManagementRateLimits } from '../api/admin/users.ts';
+import usersHandler, {
+  setMockAdminInstances,
+  resetMockAdminInstances,
+  resetUserManagementRateLimits
+} from '../api/admin/users.ts';
 
 console.log('========================================================================');
 console.log('  HACKHUB — COMPLETE USER MANAGEMENT AUTOMATED VERIFICATION SUITE');
