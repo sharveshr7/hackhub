@@ -23,6 +23,7 @@ import {
   SUPPORTED_ACADEMIC_YEARS,
   normalizeAcademicYear
 } from '../constants/departments';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const adminService = {
   getAdminOverviewStats: analyticsService.getAdminOverviewStats.bind(analyticsService),
@@ -286,7 +287,7 @@ export const adminService = {
         authorizedYears: cleanYears
       }
     };
-    await setDoc(auditLogRef, auditLogData);
+    await setDoc(auditLogRef, sanitizeForFirestore(auditLogData));
     useAppStore.getState().addAuditLog(auditLogData);
 
     // Update in-memory store
@@ -367,7 +368,7 @@ export const adminService = {
         department: targetAdminData.department
       }
     };
-    await setDoc(auditLogRef, auditLogData);
+    await setDoc(auditLogRef, sanitizeForFirestore(auditLogData));
     useAppStore.getState().addAuditLog(auditLogData);
 
     // Update in-memory store
@@ -430,7 +431,7 @@ export const adminService = {
       action: 'ADMIN_DEACTIVATED',
       timestamp: serverTimestamp()
     };
-    await setDoc(auditLogRef, auditLogData);
+    await setDoc(auditLogRef, sanitizeForFirestore(auditLogData));
     useAppStore.getState().addAuditLog(auditLogData);
 
     useAppStore.setState({
@@ -478,7 +479,7 @@ export const adminService = {
       action: 'ADMIN_REACTIVATED',
       timestamp: serverTimestamp()
     };
-    await setDoc(auditLogRef, auditLogData);
+    await setDoc(auditLogRef, sanitizeForFirestore(auditLogData));
     useAppStore.getState().addAuditLog(auditLogData);
 
     useAppStore.setState({
@@ -746,7 +747,7 @@ export const adminService = {
         authorizedClasses: docUpdates.authorizedClasses
       }
     };
-    await setDoc(auditLogRef, auditLogData);
+    await setDoc(auditLogRef, sanitizeForFirestore(auditLogData));
     useAppStore.getState().addAuditLog(auditLogData);
 
     // Update in-memory store

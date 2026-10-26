@@ -20,6 +20,7 @@ import {
 import { useAppStore, CurrentUser } from '../lib/store';
 import { Student, Admin, UserRole } from '../types';
 import { isSupportedDepartment, isValidSpecialization, sanitizeCustomSpecialization } from '../constants/departments';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 let studentAuthResolver: ((identifier: string, pass: string) => Promise<{ status: number; data: any }>) | null = null;
 
@@ -403,8 +404,7 @@ export const authService = {
 
     // 2. Write faculty profile to Firestore at admins/{uid}
     try {
-      console.log('[AuthService] Writing faculty profile to admins/' + uid);
-      await setDoc(doc(db, 'admins', uid), {
+      const cleanAdminRecord = sanitizeForFirestore({
         ...adminRecord,
         role: 'FACULTY',
         approvalStatus: 'APPROVED',
@@ -413,6 +413,7 @@ export const authService = {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
+      await setDoc(doc(db, 'admins', uid), cleanAdminRecord);
 
       // 3. Confirm profile document was successfully created
       const verifySnap = await getDoc(doc(db, 'admins', uid));

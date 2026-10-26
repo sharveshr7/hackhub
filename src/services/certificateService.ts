@@ -10,6 +10,7 @@ import {
 } from 'firebase/firestore';
 import { useAppStore } from '../lib/store';
 import { Certificate } from '../types';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const certificateService = {
   /**
@@ -40,8 +41,10 @@ export const certificateService = {
       issueDate: now
     };
 
+    const cleanCert = sanitizeForFirestore(cert);
+
     await setDoc(doc(db, 'certificates', id), {
-      ...cert,
+      ...cleanCert,
       createdAt: serverTimestamp()
     });
 

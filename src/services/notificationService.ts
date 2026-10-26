@@ -9,6 +9,7 @@ import { useAppStore } from '../lib/store';
 import { NotificationItem } from '../types';
 import { announcementService } from './announcementService';
 import { isPlatformAdministrator } from '../utils/access';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const notificationService = {
   /**
@@ -40,8 +41,10 @@ export const notificationService = {
       isRead: false
     };
 
+    const cleanNotif = sanitizeForFirestore(notifItem);
+
     await setDoc(doc(db, 'notifications', id), {
-      ...notifItem,
+      ...cleanNotif,
       createdAt: serverTimestamp()
     });
 

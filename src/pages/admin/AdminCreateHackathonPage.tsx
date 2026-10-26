@@ -75,48 +75,67 @@ export const AdminCreateHackathonPage: React.FC = () => {
     if (isLoading) return;
     setFormError(null);
 
-    // 1. Validate 5 Required Fields
-    if (!title.trim()) {
+    // 1. Validate Required Fields
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
       setFormError('Please enter the hackathon or event title.');
       return;
     }
-    const trimmedTitle = title.trim();
     if (trimmedTitle.length > 150) {
       setFormError('Event title must be 150 characters or fewer.');
       return;
     }
 
-    if (!organizer.trim()) {
-      setFormError('Please enter the conducting organizer or institution name.');
-      return;
-    }
-    const trimmedOrganizer = organizer.trim();
-
-    if (!officialUrl.trim()) {
-      setFormError('Please provide the official event or registration URL.');
-      return;
-    }
-    const trimmedUrl = officialUrl.trim();
-    if (!isValidUrl(trimmedUrl)) {
-      setFormError('Official event URL must start with http:// or https:// and be a valid web address.');
-      return;
-    }
-
-    if (!shortDescription.trim()) {
-      setFormError('Please write a short description summary of the event.');
-      return;
-    }
     if (!isSupportedDepartment(department)) {
       setFormError('Select Biotechnology or Biomedical Engineering.');
       return;
     }
+
+    const trimmedOrganizer = organizer.trim();
+    if (!isDraft && !trimmedOrganizer) {
+      setFormError('Please enter the conducting organizer or institution name.');
+      return;
+    }
+
+    const trimmedUrl = officialUrl.trim();
+    if (!isDraft) {
+      if (!trimmedUrl) {
+        setFormError('Please provide the official event or registration URL.');
+        return;
+      }
+      if (!isValidUrl(trimmedUrl)) {
+        setFormError('Official event URL must start with http:// or https:// and be a valid web address.');
+        return;
+      }
+    } else if (trimmedUrl && !isValidUrl(trimmedUrl)) {
+      setFormError('Official event URL must start with http:// or https:// and be a valid web address.');
+      return;
+    }
+
     const trimmedDesc = shortDescription.trim();
+    if (!isDraft && !trimmedDesc) {
+      setFormError('Please write a short description summary of the event.');
+      return;
+    }
     if (trimmedDesc.length > 1500) {
       setFormError('Short description must be 1500 characters or fewer.');
       return;
     }
 
     // 2. Validate Optional Date Consistency when dates are provided
+    if (eventStart && isNaN(new Date(eventStart).getTime())) {
+      setFormError('Event Start Date is invalid.');
+      return;
+    }
+    if (eventEnd && isNaN(new Date(eventEnd).getTime())) {
+      setFormError('Event End Date is invalid.');
+      return;
+    }
+    if (registrationDeadline && isNaN(new Date(registrationDeadline).getTime())) {
+      setFormError('Registration deadline date is invalid.');
+      return;
+    }
+
     if (eventStart && eventEnd) {
       const startDate = new Date(eventStart);
       const endDate = new Date(eventEnd);
@@ -145,44 +164,47 @@ export const AdminCreateHackathonPage: React.FC = () => {
     try {
       const isOurCollege = organizerType === 'OUR_COLLEGE';
       const eventStatus: HackathonStatus = isDraft ? 'DRAFT' : status;
+      const cleanOrganizer = trimmedOrganizer || (isDraft ? (facultyDept ? `${facultyDept} Department` : 'Event Organizer') : '');
+      const cleanDesc = trimmedDesc || (isDraft ? `${trimmedTitle} (Draft)` : '');
+      const cleanPrize = prizeInfo.trim();
 
       await hackathonService.createHackathon({
-        title: title.trim(),
-        organizer: organizer.trim(),
+        title: trimmedTitle,
+        organizer: cleanOrganizer,
         organizerType,
         category,
-        officialUrl: officialUrl.trim(),
-        externalRegistrationUrl: officialUrl.trim(),
+        officialUrl: trimmedUrl,
+        externalRegistrationUrl: trimmedUrl,
         department,
-        shortDescription: shortDescription.trim(),
-        description: shortDescription.trim(),
+        shortDescription: cleanDesc,
+        description: cleanDesc,
         isExternal: !isOurCollege,
 
         // Optional Dates (omitted/empty if not provided)
         registrationStart: new Date().toISOString(),
-        registrationDeadline: registrationDeadline ? new Date(registrationDeadline).toISOString() : '',
-        eventStart: eventStart ? new Date(eventStart).toISOString() : '',
-        eventEnd: eventEnd ? new Date(eventEnd).toISOString() : (eventStart ? new Date(eventStart).toISOString() : ''),
-        submissionDeadline: eventEnd ? new Date(eventEnd).toISOString() : (eventStart ? new Date(eventStart).toISOString() : ''),
+        registrationDeadline: registrationDeadline && !isNaN(new Date(registrationDeadline).getTime()) ? new Date(registrationDeadline).toISOString() : '',
+        eventStart: eventStart && !isNaN(new Date(eventStart).getTime()) ? new Date(eventStart).toISOString() : '',
+        eventEnd: eventEnd && !isNaN(new Date(eventEnd).getTime()) ? new Date(eventEnd).toISOString() : (eventStart && !isNaN(new Date(eventStart).getTime()) ? new Date(eventStart).toISOString() : ''),
+        submissionDeadline: eventEnd && !isNaN(new Date(eventEnd).getTime()) ? new Date(eventEnd).toISOString() : (eventStart && !isNaN(new Date(eventStart).getTime()) ? new Date(eventStart).toISOString() : ''),
 
         // Optional Mode & Location
         mode: mode === 'ONLINE' ? 'VIRTUAL' : mode === 'OFFLINE' ? 'IN_PERSON' : 'HYBRID',
         location: location.trim() || (mode === 'ONLINE' ? 'Virtual / Online' : 'Not specified'),
         venue: location.trim() || (mode === 'ONLINE' ? 'Virtual / Online' : 'Not specified'),
 
-        // Optional Details
+        // Optional Details - explicitly avoid undefined fields
         eligibility: eligibility.trim() ? [eligibility.trim()] : [],
-        prizePool: prizeInfo.trim() || undefined,
+        ...(cleanPrize ? { prizePool: cleanPrize } : {}),
         bannerUrl: bannerUrl.trim() || '',
         status: eventStatus,
-        publishedBy: currentUser?.uid,
-        publisherName: currentUser?.adminData?.name || currentUser?.email,
+        publishedBy: currentUser?.uid || '',
+        publisherName: currentUser?.adminData?.name || currentUser?.email || 'Faculty Coordinator',
 
         // Defaults for structure without fabricating content
         minTeamSize: 1,
         maxTeamSize: 4,
         rules: [],
-        prizes: prizeInfo.trim() ? [{ title: 'Confirmed Prize Pool', reward: prizeInfo.trim() }] : [],
+        prizes: cleanPrize ? [{ title: 'Confirmed Prize Pool', reward: cleanPrize }] : [],
         problemStatements: [],
         evaluationCriteria: [],
         faq: [],

@@ -5,6 +5,7 @@ import { registrationService } from './registrationService';
 import { attendanceService } from './attendanceService';
 import { certificateService } from './certificateService';
 import { useAppStore } from '../lib/store';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const studentService = {
   /**
@@ -20,8 +21,9 @@ export const studentService = {
    * Update student profile in Firestore
    */
   async updateStudentProfile(studentId: string, updates: Partial<Student>): Promise<void> {
+    const cleanUpdates = sanitizeForFirestore(updates);
     await updateDoc(doc(db, 'students', studentId), {
-      ...updates,
+      ...cleanUpdates,
       updatedAt: serverTimestamp()
     });
     useAppStore.getState().updateStudent(studentId, updates);

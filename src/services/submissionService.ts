@@ -9,6 +9,7 @@ import {
 import { useAppStore } from '../lib/store';
 import { Submission, SubmissionStatus, Hackathon } from '../types';
 import { uploadToCloudinary } from './cloudinaryService';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const submissionService = {
   /**
@@ -158,13 +159,11 @@ export const submissionService = {
       // Non-blocking
     }
 
-    const cleanSubmission = Object.fromEntries(
-      Object.entries({
-        ...submissionDoc,
-        ...(existingCreatedAt ? { createdAt: existingCreatedAt } : { createdAt: serverTimestamp() }),
-        updatedAt: serverTimestamp()
-      }).filter(([, value]) => value !== undefined)
-    );
+    const cleanSubmission = sanitizeForFirestore({
+      ...submissionDoc,
+      ...(existingCreatedAt ? { createdAt: existingCreatedAt } : { createdAt: serverTimestamp() }),
+      updatedAt: serverTimestamp()
+    });
 
     await setDoc(subDocRef, cleanSubmission, { merge: true });
 
@@ -194,13 +193,14 @@ export const submissionService = {
     rank?: string,
     status: SubmissionStatus = 'EVALUATED'
   ): Promise<void> {
-    await updateDoc(doc(db, 'submissions', submissionId), {
+    const evalPayload = sanitizeForFirestore({
       evaluationScore: score,
       evaluationFeedback: feedback,
       rank: rank || null,
       status,
       updatedAt: serverTimestamp()
     });
+    await updateDoc(doc(db, 'submissions', submissionId), evalPayload);
 
     useAppStore.getState().evaluateSubmission(submissionId, score, feedback, rank, status);
   }

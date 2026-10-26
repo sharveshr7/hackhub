@@ -16,6 +16,7 @@ import { useAppStore } from '../lib/store';
 import { Hackathon, HackathonStatus } from '../types';
 import { isPlatformAdministrator, isStaffRole } from '../utils/access';
 import { sanitizeHackathonDocument } from '../utils/hackathonData';
+import { serializeHackathonPayload } from '../utils/firestoreSerializer';
 
 export const hackathonService = {
   /**
@@ -95,9 +96,12 @@ export const hackathonService = {
       updatedAt: now
     };
 
+    // Serialize payload ensuring all optional fields with undefined values are omitted
+    const firestoreData = serializeHackathonPayload(newHackathon);
+
     // Save to Firestore
     await setDoc(doc(db, 'hackathons', id), {
-      ...newHackathon,
+      ...firestoreData,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -137,8 +141,10 @@ export const hackathonService = {
       );
     }
 
+    const firestoreUpdates = serializeHackathonPayload(updates, { isUpdate: true });
+
     await updateDoc(doc(db, 'hackathons', id), {
-      ...updates,
+      ...firestoreUpdates,
       updatedAt: serverTimestamp()
     });
     useAppStore.getState().updateHackathon(id, updates);

@@ -8,6 +8,7 @@ import {
 import { useAppStore } from '../lib/store';
 import { Announcement } from '../types';
 import { isPlatformAdministrator, isStaffRole } from '../utils/access';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const announcementService = {
   /**
@@ -46,8 +47,10 @@ export const announcementService = {
       status: 'ACTIVE'
     };
 
+    const cleanAnn = sanitizeForFirestore(newAnn);
+
     await setDoc(doc(db, 'announcements', id), {
-      ...newAnn,
+      ...cleanAnn,
       createdAt: serverTimestamp()
     });
 

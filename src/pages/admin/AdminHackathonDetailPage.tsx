@@ -185,6 +185,7 @@ export const AdminHackathonDetailPage: React.FC = () => {
     try {
       const isOurCollege = editOrganizerType === 'OUR_COLLEGE';
       const modeMapped = editMode === 'ONLINE' ? 'VIRTUAL' : editMode === 'OFFLINE' ? 'IN_PERSON' : 'HYBRID';
+      const cleanPrize = editPrizeInfo.trim();
       const updates: Partial<Hackathon> = {
         title: editTitle.trim(),
         organizer: editOrganizer.trim(),
@@ -198,11 +199,12 @@ export const AdminHackathonDetailPage: React.FC = () => {
         mode: modeMapped,
         location: editLocation.trim() || (editMode === 'ONLINE' ? 'Virtual / Online' : 'Not specified'),
         venue: editLocation.trim() || (editMode === 'ONLINE' ? 'Virtual / Online' : 'Not specified'),
-        eventStart: editEventStart ? new Date(editEventStart).toISOString() : '',
-        eventEnd: editEventEnd ? new Date(editEventEnd).toISOString() : (editEventStart ? new Date(editEventStart).toISOString() : ''),
-        registrationDeadline: editRegDeadline ? new Date(editRegDeadline).toISOString() : '',
+        eventStart: editEventStart && !isNaN(new Date(editEventStart).getTime()) ? new Date(editEventStart).toISOString() : '',
+        eventEnd: editEventEnd && !isNaN(new Date(editEventEnd).getTime()) ? new Date(editEventEnd).toISOString() : (editEventStart && !isNaN(new Date(editEventStart).getTime()) ? new Date(editEventStart).toISOString() : ''),
+        registrationDeadline: editRegDeadline && !isNaN(new Date(editRegDeadline).getTime()) ? new Date(editRegDeadline).toISOString() : '',
         eligibility: editEligibility.trim() ? [editEligibility.trim()] : [],
-        prizePool: editPrizeInfo.trim() || undefined,
+        prizePool: cleanPrize,
+        prizes: cleanPrize ? [{ title: 'Confirmed Prize Pool', reward: cleanPrize }] : [],
         bannerUrl: editBannerUrl.trim(),
         status: editStatus
       };

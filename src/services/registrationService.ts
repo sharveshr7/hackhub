@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { useAppStore } from '../lib/store';
 import { Registration, RegistrationStatus, Hackathon } from '../types';
+import { sanitizeForFirestore } from '../utils/firestoreSerializer';
 
 export const registrationService = {
   /**
@@ -153,9 +154,7 @@ export const registrationService = {
     }
 
     // Defensive strip of any undefined values
-    const cleanPayload = Object.fromEntries(
-      Object.entries(firestorePayload).filter(([, value]) => value !== undefined)
-    );
+    const cleanPayload = sanitizeForFirestore(firestorePayload);
 
     try {
       await runTransaction(db, async (transaction) => {
@@ -209,12 +208,10 @@ export const registrationService = {
     if (notes !== undefined && notes.trim() !== '') {
       updates.externalNotes = notes.trim();
     }
-    const cleanUpdates = Object.fromEntries(
-      Object.entries({
-        ...updates,
-        updatedAt: serverTimestamp()
-      }).filter(([, value]) => value !== undefined)
-    );
+    const cleanUpdates = sanitizeForFirestore({
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
     await updateDoc(doc(db, 'registrations', id), cleanUpdates);
     useAppStore.getState().updateRegistration(id, updates);
   }
