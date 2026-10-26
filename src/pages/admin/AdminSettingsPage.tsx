@@ -83,21 +83,6 @@ export const AdminSettingsPage: React.FC = () => {
       setIsSavingProfile(false);
     }
   };
-
-  const handleToggleDepartmentApprover = async (adminId: string, facultyName: string, isApprover: boolean) => {
-    try {
-      setProcessingAdminId(adminId);
-      await adminService.toggleDepartmentApprover(adminId, !isApprover);
-      showToast('success', isApprover ? 'Department Approver Removed' : 'Department Approver Assigned', `${facultyName} ${isApprover ? 'no longer' : 'is now'} a department approver.`);
-    } catch (err: any) {
-      showToast('error', 'Role Update Failed', err.message || 'Unable to update department approver access.');
-    } finally {
-      setProcessingAdminId(null);
-    }
-  };
-
-  const pendingFacultyCount = admins.filter((a) => a.approvalStatus === 'PENDING').length;
-
   if (!isPlatformAdministrator(currentUser)) return <Navigate to="/admin" replace />;
 
   return (
@@ -125,19 +110,14 @@ export const AdminSettingsPage: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('faculty')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all relative ${
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all ${
             activeTab === 'faculty'
               ? 'bg-navy-950 text-white shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
           }`}
         >
           <UserCheck className="w-3.5 h-3.5" />
-          <span>Faculty & Approvers</span>
-          {pendingFacultyCount > 0 && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white leading-none">
-              {pendingFacultyCount}
-            </span>
-          )}
+          <span>Faculty Roster</span>
         </button>
 
         <button
@@ -337,33 +317,27 @@ export const AdminSettingsPage: React.FC = () => {
         </form>
       )}
 
-      {/* TAB: FACULTY APPROVALS */}
+      {/* TAB: FACULTY ROSTER */}
       {activeTab === 'faculty' && (
         <div className="bg-white rounded-2xl border border-slate-200/80 p-6 sm:p-8 shadow-subtle space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-bold text-navy-950 font-display">Faculty Access & Department Approvers</h2>
+              <h2 className="text-base font-bold text-navy-950 font-display">Faculty Coordinators & Scope</h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Assign approved faculty members to review registrations for their own department. Department approvers cannot grant platform administrator access.
+                Overview of registered faculty coordinators and their department assignments.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                {admins.length} Total
+                {admins.length} Total Faculty
               </span>
-              {pendingFacultyCount > 0 && (
-                <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {pendingFacultyCount} Pending
-                </span>
-              )}
             </div>
           </div>
 
           <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-3">
             <Shield className="w-4 h-4 text-navy-900 shrink-0 mt-0.5" />
             <p>
-              <strong className="text-navy-950">Approval boundary:</strong> Faculty registrations remain <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 text-slate-800 font-mono text-[11px]">PENDING</code> until a department approver reviews them. Assign at least one approver in each department below; platform administrators do not approve faculty applications.
+              <strong className="text-navy-950">Department boundaries:</strong> Faculty coordinators manage hackathons, submissions, and students within their authorized department. Platform administrators manage platform-wide operations and settings.
             </p>
           </div>
 
@@ -375,13 +349,9 @@ export const AdminSettingsPage: React.FC = () => {
           ) : (
             <div className="divide-y divide-slate-100">
               {admins.map((admin) => {
-                const status = admin.approvalStatus || 'APPROVED';
-                const isPending = status === 'PENDING';
-                const isApproved = status === 'APPROVED';
-                const isRejected = status === 'REJECTED';
                 const isCurrentSelf = admin.uid === currentUser?.uid;
-                const isFaculty = String(admin.role || '').toUpperCase() === 'FACULTY';
-                const isDepartmentApprover = admin.isDepartmentApprover === true;
+                const isPlatformAdmin = admin.isPlatformAdmin === true;
+                const isActive = admin.isActive !== false && (admin as any).accountStatus !== 'deactivated';
 
                 return (
                   <div key={admin.uid} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -393,22 +363,22 @@ export const AdminSettingsPage: React.FC = () => {
                             You
                           </span>
                         )}
-                        {isPending && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-100 text-amber-800">
-                            <Clock className="w-3 h-3" /> Pending Verification
+                        {isPlatformAdmin ? (
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-100 text-purple-800">
+                            Platform Administrator
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-100 text-blue-800">
+                            Faculty Coordinator
                           </span>
                         )}
-                        {isApproved && (
+                        {isActive ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-100 text-emerald-800">
-                            <CheckCircle2 className="w-3 h-3" /> Approved
+                            <CheckCircle2 className="w-3 h-3" /> Active
                           </span>
-                        )}
-                        {isApproved && isDepartmentApprover && (
-                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-100 text-blue-800">Department Approver</span>
-                        )}
-                        {isRejected && (
+                        ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-100 text-rose-800">
-                            <XCircle className="w-3 h-3" /> Rejected
+                            <XCircle className="w-3 h-3" /> Deactivated
                           </span>
                         )}
                       </div>
@@ -426,24 +396,7 @@ export const AdminSettingsPage: React.FC = () => {
                           </>
                         )}
                       </div>
-
-                      {admin.approvedBy && (
-                        <p className="text-[10px] text-slate-400">
-                          Approved by {admin.approvedBy}
-                        </p>
-                      )}
                     </div>
-
-                    {isApproved && isFaculty && !isCurrentSelf && admin.department && (
-                      <button
-                        type="button"
-                        disabled={processingAdminId === admin.uid}
-                        onClick={() => handleToggleDepartmentApprover(admin.uid, admin.name || admin.email, isDepartmentApprover)}
-                        className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${isDepartmentApprover ? 'text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100' : 'text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100'}`}
-                      >
-                        {processingAdminId === admin.uid ? 'Saving?' : isDepartmentApprover ? 'Remove approver role' : 'Make department approver'}
-                      </button>
-                    )}
                   </div>
                 );
               })}

@@ -15,7 +15,9 @@ export const ALLOWED_EXTENSIONS = [
   'docx',
   'png',
   'jpg',
-  'jpeg'
+  'jpeg',
+  'mp4',
+  'webm'
 ];
 
 export interface CloudinaryUploadOptions {
@@ -58,7 +60,7 @@ export function validateSubmissionFile(file: File): { valid: boolean; error?: st
   if (!ALLOWED_EXTENSIONS.includes(ext)) {
     return {
       valid: false,
-      error: `File type .${ext || 'unknown'} is not supported. Allowed formats: .zip, .pdf, .ppt, .pptx, .doc, .docx, .png, .jpg, .jpeg`
+      error: `File type .${ext || 'unknown'} is not supported. Allowed formats: .zip, .pdf, .ppt, .pptx, .doc, .docx, .png, .jpg, .jpeg, .mp4, .webm`
     };
   }
 

@@ -59,11 +59,6 @@ export const AdminDashboardPage: React.FC = () => {
     return platformAdministrator ? students : students.filter((s) => s.department === facultyDept);
   }, [students, facultyDept, platformAdministrator]);
 
-  const pendingFacultyCount = admins.filter((a) => {
-    if (a.approvalStatus !== 'PENDING') return false;
-    if (isDeptApprover) return a.department === facultyDept;
-    return false;
-  }).length;
 
   const publishedHackathonsCount = scopedHackathons.filter((h) => h.status !== 'DRAFT').length;
   const activeHackathonsCount = scopedHackathons.filter(
@@ -311,31 +306,6 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* PENDING FACULTY REGISTRATIONS ALERT BANNER */}
-      {pendingFacultyCount > 0 && (
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-subtle animate-in fade-in duration-200">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-              <Clock className="w-5 h-5 animate-pulse" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-amber-950">
-                {pendingFacultyCount} Faculty Coordinator {pendingFacultyCount === 1 ? 'Registration' : 'Registrations'} Pending Verification
-              </p>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                New faculty accounts have registered and are awaiting institutional administrator authorization.
-              </p>
-            </div>
-          </div>
-          <Link
-            to="/admin/faculty-approvals"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 shadow-xs transition-colors"
-          >
-            <span>Review Applications</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-      )}
 
       {/* SECTION 4: TOP 6 SUMMARY CARDS (Real Firebase Data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">

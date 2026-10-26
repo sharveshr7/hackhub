@@ -144,15 +144,15 @@ export const AdminSignupPage: React.FC = () => {
       });
 
       showToast(
-        'info',
-        'Registration Submitted',
-        'Faculty coordinator registration submitted. Awaiting administrator verification.'
+        'success',
+        'Registration Successful',
+        'Your faculty coordinator account has been created. You can now sign in.'
       );
 
       navigate('/admin/login', {
         replace: true,
         state: {
-          registeredNotice: 'Your faculty coordinator profile has been created and is pending approval by the college administrator. You will be able to sign in once your account has been approved.'
+          registeredNotice: 'Your faculty coordinator profile has been created successfully. Please sign in with your credentials.'
         }
       });
     } catch (err: any) {

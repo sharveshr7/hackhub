@@ -21,7 +21,6 @@ service cloud.firestore {
     function isStaff() {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-        getAdminData().approvalStatus == 'APPROVED' &&
         getAdminData().isActive != false &&
         getAdminData().accountStatus != 'deactivated' &&
         getAdminData().role in ['ADMIN', 'FACULTY', 'admin', 'faculty'];
@@ -33,12 +32,6 @@ service cloud.firestore {
 
     function getAdminDept() {
       return getAdminData().department;
-    }
-
-    function isDeptApprover(dept) {
-      return isStaff() &&
-        getAdminData().isDepartmentApprover == true &&
-        getAdminData().department == dept;
     }
 
     function canAccessDepartment(dept) {
@@ -119,56 +112,34 @@ service cloud.firestore {
       allow delete: if canReadStudent(resource.data);
     }
 
-    // Faculty apply as FACULTY. Only department approvers can approve them; client writes never grant platform scope.
+    // Faculty register as FACULTY. Platform administrators manage staff scope; client writes cannot grant platform scope.
     match /admins/{adminId} {
       allow get: if isOwner(adminId) || isPlatformAdmin() || (isStaff() && resource.data.department == getAdminDept());
       allow list: if isPlatformAdmin() || (isStaff() && resource.data.department == getAdminDept());
       allow create: if (
         isOwner(adminId) &&
         request.resource.data.uid == request.auth.uid &&
-        request.resource.data.approvalStatus == 'PENDING' &&
         request.resource.data.role == 'FACULTY' &&
-        (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover != true) &&
         (!('isPlatformAdmin' in request.resource.data) || request.resource.data.isPlatformAdmin != true) &&
         validResearchSpecialization(request.resource.data) &&
         isValidDepartment(request.resource.data.department) &&
         !exists(/databases/$(database)/documents/students/$(request.auth.uid))
       );
       allow update: if (
-        // Department approvers may approve/reject only pending applicants in their own department.
-        (
-          !isOwner(adminId) &&
-          isDeptApprover(resource.data.department) &&
-          resource.data.approvalStatus == 'PENDING' &&
-          resource.data.department == getAdminDept() &&
-          request.resource.data.department == resource.data.department &&
-          request.resource.data.role == 'FACULTY' &&
-          request.resource.data.approvalStatus in ['APPROVED', 'REJECTED'] &&
-          (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover == resource.data.isDepartmentApprover) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['approvalStatus', 'approvedAt', 'approvedBy', 'approvedByUid', 'reviewedByUid', 'authorizedYears', 'authorizedClasses', 'rejectionReason', 'rejectedAt', 'rejectedBy', 'updatedAt']) &&
-          validResearchSpecialization(request.resource.data)
-        ) ||
-        // Platform administrators manage approved faculty metadata and scope, but cannot create platform admins in client code.
+        // Platform administrators manage staff scope and accounts, but cannot create platform admins in client code.
         (
           !isOwner(adminId) &&
           isPlatformAdmin() &&
           request.resource.data.role == resource.data.role &&
           (!('isPlatformAdmin' in request.resource.data) || request.resource.data.isPlatformAdmin == resource.data.isPlatformAdmin) &&
-          request.resource.data.approvalStatus == resource.data.approvalStatus &&
-          (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover != true || (
-            request.resource.data.role == 'FACULTY' &&
-            resource.data.approvalStatus == 'APPROVED' &&
-            request.resource.data.departmentApproverScope == resource.data.department
-          )) &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'designation', 'department', 'authorizedYears', 'authorizedClasses', 'isDepartmentApprover', 'departmentApproverScope', 'isActive', 'accountStatus', 'deactivatedAt', 'deactivatedByUid', 'reactivatedAt', 'reactivatedByUid', 'updatedAt', 'researchSpecialization', 'customSpecialization', 'researchInterests']) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'phone', 'designation', 'department', 'authorizedYears', 'authorizedClasses', 'isActive', 'accountStatus', 'deactivatedAt', 'deactivatedByUid', 'reactivatedAt', 'reactivatedByUid', 'updatedAt', 'researchSpecialization', 'customSpecialization', 'researchInterests', 'approvalStatus', 'approvedAt', 'approvedBy', 'approvedByUid']) &&
           validResearchSpecialization(request.resource.data)
         ) ||
-        // Staff may update profile metadata only.
+        // Staff may update profile metadata only. Cannot escalate role, platform privileges, or change department/scope.
         (
           isOwner(adminId) && isStaff() &&
           request.resource.data.role == resource.data.role &&
           request.resource.data.department == resource.data.department &&
-          request.resource.data.approvalStatus == resource.data.approvalStatus &&
           (!('isPlatformAdmin' in request.resource.data) || request.resource.data.isPlatformAdmin == resource.data.isPlatformAdmin) &&
           (!('isDepartmentApprover' in request.resource.data) || request.resource.data.isDepartmentApprover == resource.data.isDepartmentApprover) &&
           (!('authorizedYears' in request.resource.data) || request.resource.data.authorizedYears == resource.data.authorizedYears) &&
@@ -194,25 +165,12 @@ service cloud.firestore {
       allow get, list, write: if false;
     }
 
-    // Audit logs are immutable; department approvers can record only completed same-department reviews.
+    // Audit logs are immutable; staff audit log creation requires staff session.
     match /audit_logs/{logId} {
       allow read: if isPlatformAdmin();
       allow create: if isStaff() &&
         request.resource.data.actorUid == request.auth.uid &&
-        request.resource.data.actorEmail == request.auth.token.email &&
-        (
-          isPlatformAdmin() ||
-          (
-            request.resource.data.actorRole == 'DEPT_APPROVER' &&
-            request.resource.data.action in ['ADMIN_APPROVED', 'ADMIN_REJECTED'] &&
-            request.resource.data.previousStatus == 'PENDING' &&
-            request.resource.data.details.department == getAdminDept() &&
-            request.resource.data.targetUid is string &&
-            exists(/databases/$(database)/documents/admins/$(request.resource.data.targetUid)) &&
-            get(/databases/$(database)/documents/admins/$(request.resource.data.targetUid)).data.department == getAdminDept() &&
-            get(/databases/$(database)/documents/admins/$(request.resource.data.targetUid)).data.approvalStatus == request.resource.data.newStatus
-          )
-        );
+        request.resource.data.actorEmail == request.auth.token.email;
       allow update, delete: if false;
     }
 
@@ -361,7 +319,14 @@ service cloud.firestore {
         request.resource.data.status == (request.resource.data.isDraft ? 'DRAFT' : 'SUBMITTED') &&
         request.resource.data.hackathonId == resource.data.hackathonId &&
         request.resource.data.teamId == resource.data.teamId &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['projectTitle', 'title', 'description', 'solution', 'technologies', 'techStack', 'githubUrl', 'demoUrl', 'liveDemoUrl', 'presentationUrl', 'reportUrl', 'demoVideoUrl', 'videoDemoUrl', 'files', 'additionalNotes', 'isDraft', 'status', 'submittedAt', 'updatedAt']) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'projectTitle', 'projectName', 'title', 'tagline', 'description', 'solution',
+          'technologies', 'techStack', 'githubUrl', 'demoUrl', 'liveDemoUrl',
+          'presentationUrl', 'reportUrl', 'demoVideoUrl', 'videoDemoUrl',
+          'problemStatementId', 'problemStatementTitle',
+          'files', 'fileName', 'fileUrl', 'cloudinaryPublicId', 'fileSize', 'resourceType',
+          'additionalNotes', 'isDraft', 'status', 'submittedAt', 'updatedAt', 'createdAt'
+        ]) &&
         (!('evaluationScore' in request.resource.data) || request.resource.data.evaluationScore == resource.data.evaluationScore) &&
         (!('evaluationFeedback' in request.resource.data) || request.resource.data.evaluationFeedback == resource.data.evaluationFeedback) &&
         (!('rank' in request.resource.data) || request.resource.data.rank == resource.data.rank)

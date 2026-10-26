@@ -15,7 +15,6 @@ service firebase.storage {
 
     function isStaff() {
       return isAuthenticated() && firestore.exists(adminPath()) &&
-        adminData().approvalStatus == 'APPROVED' &&
         adminData().isActive != false &&
         adminData().accountStatus != 'deactivated' &&
         adminData().role in ['ADMIN', 'FACULTY', 'admin', 'faculty'];
@@ -51,8 +50,8 @@ service firebase.storage {
       allow read: if true;
       allow write: if isStaff() && (
         isPlatformAdmin() ||
-        (firestore.exists(/databases/(default)/documents/hackathons/$(hackathonId)) &&
-          firestore.get(/databases/(default)/documents/hackathons/$(hackathonId)).data.department == adminData().department)
+        !firestore.exists(/databases/(default)/documents/hackathons/$(hackathonId)) ||
+        firestore.get(/databases/(default)/documents/hackathons/$(hackathonId)).data.department == adminData().department
       );
     }
 

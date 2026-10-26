@@ -166,6 +166,7 @@ export interface Admin {
   institution?: string;
   approvalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
   isActive?: boolean;
+  accountStatus?: 'active' | 'deactivated' | 'disabled';
   isFirstAdmin?: boolean;
   isPlatformAdmin?: boolean;
   isDepartmentApprover?: boolean; // Authorized to approve applicants for their own department

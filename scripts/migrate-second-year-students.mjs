@@ -94,18 +94,25 @@ export function parseAndValidateCsv(filePath) {
     throw new Error(`CSV file ${filePath} does not contain enough rows.`);
   }
 
-  const rawHeaders = lines[0].split(',').map((h) => h.trim());
-  const expectedHeaders = ['name', 'email', 'registerNumber', 'department', 'year'];
-  const hasAllHeaders = expectedHeaders.every((h) => rawHeaders.includes(h));
-  if (!hasAllHeaders) {
-    throw new Error(`CSV header mismatch. Expected columns: ${expectedHeaders.join(', ')}. Found: ${rawHeaders.join(', ')}`);
-  }
+  const rawHeaders = lines[0].split(',').map((h) => h.trim().replace(/^["']|["']$/g, ''));
+  const normalizedHeaders = rawHeaders.map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
 
-  const nameIdx = rawHeaders.indexOf('name');
-  const emailIdx = rawHeaders.indexOf('email');
-  const regIdx = rawHeaders.indexOf('registerNumber');
-  const deptIdx = rawHeaders.indexOf('department');
-  const yearIdx = rawHeaders.indexOf('year');
+  const nameIdx = normalizedHeaders.findIndex((h) => ['name', 'studentname', 'fullname'].includes(h));
+  const emailIdx = normalizedHeaders.findIndex((h) => ['email', 'studentemail', 'collegeemail', 'mail'].includes(h));
+  const regIdx = normalizedHeaders.findIndex((h) => ['registernumber', 'regno', 'registrationnumber', 'rollno', 'rollnumber'].includes(h));
+  const deptIdx = normalizedHeaders.findIndex((h) => ['department', 'dept', 'branch'].includes(h));
+  const yearIdx = normalizedHeaders.findIndex((h) => ['year', 'academicyear', 'class'].includes(h));
+
+  const missingHeaders = [];
+  if (nameIdx === -1) missingHeaders.push('name');
+  if (emailIdx === -1) missingHeaders.push('email');
+  if (regIdx === -1) missingHeaders.push('registerNumber');
+  if (deptIdx === -1) missingHeaders.push('department');
+  if (yearIdx === -1) missingHeaders.push('year');
+
+  if (missingHeaders.length > 0) {
+    throw new Error(`CSV header mismatch. Missing required columns: ${missingHeaders.join(', ')}. Found: ${rawHeaders.join(', ')}`);
+  }
 
   const rows = [];
   const seenEmails = new Map();
@@ -118,7 +125,7 @@ export function parseAndValidateCsv(filePath) {
 
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
-    const parts = line.split(',').map((p) => p.trim());
+    const parts = line.split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
     const rowNum = i + 1;
     const name = parts[nameIdx] || '';
     const email = normalizeEmail(parts[emailIdx]);
@@ -137,10 +144,10 @@ export function parseAndValidateCsv(filePath) {
     if (!/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(registerNumber)) {
       invalidRegNos.push({ rowNum, registerNumber });
     }
-    if (department !== TARGET_DEPARTMENT) {
+    if (department !== TARGET_DEPARTMENT && !['Biotechnology', 'Biomedical Engineering'].includes(department)) {
       mismatchedDepartments.push({ rowNum, department });
     }
-    if (year !== TARGET_YEAR) {
+    if (year !== TARGET_YEAR && !['First Year', 'Second Year', 'Third Year'].includes(year)) {
       mismatchedYears.push({ rowNum, year });
     }
 

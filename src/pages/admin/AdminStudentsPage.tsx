@@ -21,9 +21,10 @@ import {
   Users,
   FileText,
   Trophy,
-  Filter,
   UserPlus,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  Filter
 } from 'lucide-react';
 import { Student } from '../../types';
 import {
@@ -34,6 +35,7 @@ import {
 } from '../../constants/departments';
 import { downloadExcelWorkbook, getHackathonReportTitle, resolveHackathonReference } from '../../utils/excelExport.mjs';
 import { isPlatformAdministrator } from '../../utils/access';
+import { BulkStudentImportModal } from '../../components/admin/BulkStudentImportModal';
 
 export const AdminStudentsPage: React.FC = () => {
   const { students, registrations, teams, hackathons, submissions, certificates, currentUser } = useAppStore();
@@ -59,6 +61,7 @@ export const AdminStudentsPage: React.FC = () => {
 
   // Student Provisioning Modal State
   const [isProvisionModalOpen, setIsProvisionModalOpen] = useState(false);
+  const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [provName, setProvName] = useState('');
   const [provRegNo, setProvRegNo] = useState('');
   const [provEmail, setProvEmail] = useState('');
@@ -321,7 +324,15 @@ export const AdminStudentsPage: React.FC = () => {
               Provision Student
             </Button>
             <Button
-            onClick={handleExportExcel}
+              onClick={() => setIsBulkImportOpen(true)}
+              variant="outline"
+              size="sm"
+              leftIcon={<Upload className="w-3.5 h-3.5" />}
+            >
+              Bulk Import CSV
+            </Button>
+            <Button
+              onClick={handleExportExcel}
               variant="outline"
               size="sm"
               leftIcon={<Download className="w-3.5 h-3.5" />}
@@ -774,6 +785,14 @@ export const AdminStudentsPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Bulk Student Import Modal */}
+      <BulkStudentImportModal
+        isOpen={isBulkImportOpen}
+        onClose={() => setIsBulkImportOpen(false)}
+        facultyDept={facultyDept}
+        isPlatformAdmin={platformAdministrator}
+      />
     </div>
   );
 };

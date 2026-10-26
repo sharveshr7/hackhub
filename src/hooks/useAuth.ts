@@ -31,22 +31,20 @@ export function useAuth() {
           const adminData = adminSnap.data() as Admin;
           const roleUpper = (adminData.role || '').toUpperCase();
 
-          const isApproved =
-            adminData.approvalStatus === 'APPROVED' ||
-            (!adminData.approvalStatus && ['ADMIN', 'FACULTY'].includes(roleUpper));
-
+          const isStaffRole = ['ADMIN', 'FACULTY'].includes(roleUpper);
           const isActive =
             adminData.isActive !== false &&
             (adminData as any).accountStatus !== 'deactivated';
 
-          if (isApproved && isActive) {
+          if (isStaffRole && isActive) {
+            const effectiveRole: UserRole = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
             const currentAdmin: CurrentUser = {
               uid: fbUser.uid,
               email: fbUser.email || '',
-              role: adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY',
+              role: effectiveRole,
               adminData: {
                 ...adminData,
-                role: adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY'
+                role: effectiveRole
               }
             };
             setUser(currentAdmin);
@@ -54,8 +52,7 @@ export function useAuth() {
             setLoading(false);
             return;
           } else {
-            // Pending, rejected, or deactivated admin registration: do not grant admin permissions
-            console.warn(`[useAuth] Account ${fbUser.uid} has approvalStatus=${adminData.approvalStatus || 'PENDING'}, isActive=${isActive}; withholding admin permissions.`);
+            console.warn(`[useAuth] Account ${fbUser.uid} is inactive or lacks staff authorization (isActive=${isActive}, role=${adminData.role}).`);
             setUser(null);
             setCurrentUser(null);
             setLoading(false);

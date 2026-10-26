@@ -155,6 +155,57 @@ export const adminService = {
   },
 
   /**
+   * Bulk import students from spreadsheet/CSV records
+   */
+  async bulkImportStudents(students: Array<{
+    name: string;
+    registerNumber: string;
+    email: string;
+    department: string;
+    year: string;
+    phone?: string;
+  }>): Promise<{
+    success: boolean;
+    summary: { total: number; succeeded: number; failed: number; duplicates: number };
+    results: Array<{
+      row: number;
+      name: string;
+      email: string;
+      registerNumber: string;
+      status: 'success' | 'failed' | 'duplicate';
+      reason?: string;
+    }>;
+  }> {
+    const currentUser = useAppStore.getState().currentUser;
+    if (!currentUser || !['ADMIN', 'FACULTY'].includes(currentUser.role)) {
+      throw new Error('Unauthorized: Only authorized administrators can import student accounts.');
+    }
+
+    if (!auth.currentUser || auth.currentUser.uid !== currentUser.uid) {
+      throw new Error('Your authenticated staff session could not be verified. Sign in again and retry.');
+    }
+
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/student-auth', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify({
+        action: 'bulk-import-students',
+        students
+      })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.success) {
+      throw new Error(result?.error || 'Bulk student import failed.');
+    }
+    return result;
+  },
+
+  /**
    * Approve a pending faculty coordinator application (Designated Department Approver only)
    */
   async approveFacultyAdmin(

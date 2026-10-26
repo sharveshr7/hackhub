@@ -220,8 +220,8 @@ export async function verifyServerRequest(
     if (adminDoc.exists) {
       const adminData = adminDoc.data() as any;
       const storedRole = String(adminData.role || '').toUpperCase();
-      if (adminData.approvalStatus !== 'APPROVED' || adminData.isActive === false || adminData.accountStatus === 'deactivated' || !['ADMIN', 'FACULTY'].includes(storedRole)) {
-        return { valid: false, status: 403, error: 'Forbidden: Staff account is not active or approved.' };
+      if (adminData.isActive === false || adminData.accountStatus === 'deactivated' || !['ADMIN', 'FACULTY'].includes(storedRole)) {
+        return { valid: false, status: 403, error: 'Forbidden: Staff account is deactivated or unauthorized.' };
       }
       const role = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
       if (requiredRole === 'STUDENT' || (requiredRole === 'ADMIN' && role !== 'ADMIN')) {
@@ -442,13 +442,13 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  // Authorization Boundary: Must be Platform Admin or Department Approver
+  // Authorization Boundary: Must be Platform Administrator or Department Authorized Staff
   const isPlatformAdmin = caller.isPlatformAdministrator === true;
   const isDeptApprover = caller.isDepartmentApprover === true;
 
   if (!isPlatformAdmin && !isDeptApprover) {
     return res.status(403).json({
-      error: 'Forbidden: Access to user management requires platform administrator or department approver privileges.'
+      error: 'Forbidden: Access to user management requires platform administrator or department staff privileges.'
     });
   }
 
@@ -728,12 +728,8 @@ export default async function handler(req: any, res: any) {
         const d = doc.data() || {};
         const roleUpper = String(d.role || 'FACULTY').toUpperCase();
         const userRole: 'ADMIN' | 'FACULTY' = d.isPlatformAdmin === true || roleUpper === 'ADMIN' ? 'ADMIN' : 'FACULTY';
-        const isApproved = d.approvalStatus === 'APPROVED' || (!d.approvalStatus && userRole === 'ADMIN');
         const isActive = d.isActive !== false && d.accountStatus !== 'deactivated';
-        
-        let userStatus: ManagedUserSummary['status'] = 'active';
-        if (!isApproved || d.approvalStatus === 'PENDING') userStatus = 'pending';
-        else if (!isActive || d.accountStatus === 'deactivated') userStatus = 'inactive';
+        const userStatus: ManagedUserSummary['status'] = isActive ? 'active' : 'inactive';
 
         allUsers.push({
           uid: doc.id,

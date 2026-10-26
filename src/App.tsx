@@ -42,7 +42,6 @@ import { AdminNotificationsPage } from './pages/admin/AdminNotificationsPage';
 import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAttendancePage } from './pages/admin/AdminAttendancePage';
-import { AdminFacultyApprovalsPage } from './pages/admin/AdminFacultyApprovalsPage';
 import { AdminUsersPage } from './pages/admin/AdminUsersPage';
 
 
@@ -98,7 +97,7 @@ export function App() {
             <Route path="announcements" element={<AdminAnnouncementsPage />} />
             <Route path="notifications" element={<AdminNotificationsPage />} />
             <Route path="analytics" element={<AdminAnalyticsPage />} />
-            <Route path="faculty-approvals" element={<AdminFacultyApprovalsPage />} />
+            <Route path="faculty-approvals" element={<Navigate to="/admin" replace />} />
             <Route path="users" element={<AdminUsersPage />} />
             <Route path="settings" element={<AdminSettingsPage />} />
           </Route>

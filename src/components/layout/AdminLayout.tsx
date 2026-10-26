@@ -42,7 +42,6 @@ export const AdminLayout: React.FC = () => {
   const profileDropdownRef = useRef<HTMLDivElement>(null);
 
   const isLoadingAuth = useAppStore((state) => state.isLoadingAuth);
-  const pendingApprovalsCount = admins.filter((a) => a.approvalStatus === 'PENDING').length;
 
   // Close profile dropdown on outside click
   useEffect(() => {
@@ -106,22 +105,12 @@ export const AdminLayout: React.FC = () => {
   const admin = currentUser.adminData;
 
   const governanceItems: Array<{ to: string; label: string; icon: React.ReactNode; badge?: number }> = [];
-  if (isPlatformAdministrator(currentUser) || isDepartmentApprover(currentUser)) {
+  if (isPlatformAdministrator(currentUser)) {
     governanceItems.push({
       to: '/admin/users',
       label: 'User Management',
       icon: <Users className="w-4 h-4" />
     });
-  }
-  if (isDepartmentApprover(currentUser)) {
-    governanceItems.push({
-      to: '/admin/faculty-approvals',
-      label: 'Faculty Approvals',
-      icon: <Shield className="w-4 h-4" />,
-      badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined
-    });
-  }
-  if (isPlatformAdministrator(currentUser)) {
     governanceItems.push({ to: '/admin/settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> });
   }
 

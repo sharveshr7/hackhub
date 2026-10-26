@@ -616,8 +616,8 @@ export async function verifyServerRequest(
     if (adminDoc.exists) {
       const adminData = adminDoc.data() as any;
       const storedRole = String(adminData.role || '').toUpperCase();
-      if (adminData.approvalStatus !== 'APPROVED' || adminData.isActive === false || adminData.accountStatus === 'deactivated' || !['ADMIN', 'FACULTY'].includes(storedRole)) {
-        return { valid: false, status: 403, error: 'Forbidden: Staff account is not active or approved.' };
+      if (adminData.isActive === false || adminData.accountStatus === 'deactivated' || !['ADMIN', 'FACULTY'].includes(storedRole)) {
+        return { valid: false, status: 403, error: 'Forbidden: Staff account is deactivated or unauthorized.' };
       }
       const role = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
       if (requiredRole === 'STUDENT' || (requiredRole === 'ADMIN' && role !== 'ADMIN')) {
@@ -673,6 +673,10 @@ export const SUPPORTED_STUDENT_YEARS = ['First Year', 'Second Year', 'Third Year
 
 export function normalizeRegistrationNumber(value: unknown): string {
   return String(value || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+export function normalizeEmail(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
 }
 
 export function isValidRegistrationNumber(value: string): boolean {
@@ -865,6 +869,278 @@ export async function provisionStudentAccount(
     console.error('[StudentProvisioning] Provisioning failed:', err?.message || 'unknown error');
     return { status: 500, body: { error: 'Student provisioning failed. No success was recorded; check server logs if the account needs reconciliation.' } };
   }
+}
+
+export async function bulkImportStudentAccounts(
+  body: Record<string, unknown>,
+  actor: { uid: string; email?: string; department?: string; role?: string; isPlatformAdministrator?: boolean }
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const rawRows = body.students;
+  if (!Array.isArray(rawRows) || rawRows.length === 0) {
+    return { status: 400, body: { error: 'Please provide an array of student records to import.' } };
+  }
+
+  if (rawRows.length > 500) {
+    return { status: 400, body: { error: 'Bulk import limit exceeded. Maximum 500 rows allowed per import.' } };
+  }
+
+  const instances = await getAdminInstances();
+  if (!instances?.adminAuth || !instances.adminDb) {
+    return { status: 503, body: { error: 'Student import requires Firebase Admin SDK credentials on the server.' } };
+  }
+
+  const db = instances.adminDb;
+  const adminAuth = instances.adminAuth;
+  const domains = getAllowedCollegeEmailDomains();
+  const apiKey = FIREBASE_API_KEY;
+
+  // 1. Pre-fetch existing database state to detect duplicates against DB
+  const [existingStudentsSnap, existingRegSnap] = await Promise.all([
+    db.collection('students').get(),
+    db.collection('reg_lookups').get()
+  ]);
+
+  const existingEmails = new Map<string, string>();
+  const existingRegNos = new Map<string, string>();
+
+  for (const doc of existingStudentsSnap.docs) {
+    const d = doc.data() || {};
+    const e = normalizeEmail(d.email);
+    const r = normalizeRegistrationNumber(d.registerNumber || d.registrationNumberNormalized);
+    if (e) existingEmails.set(e, doc.id);
+    if (r) existingRegNos.set(r, doc.id);
+  }
+
+  for (const doc of existingRegSnap.docs) {
+    const r = normalizeRegistrationNumber(doc.id);
+    const d = doc.data() || {};
+    const e = normalizeEmail(d.email);
+    if (r && !existingRegNos.has(r)) existingRegNos.set(r, d.uid || doc.id);
+    if (e && !existingEmails.has(e)) existingEmails.set(e, d.uid || doc.id);
+  }
+
+  // Track duplicates within the uploaded file itself
+  const fileEmails = new Map<string, number>();
+  const fileRegNos = new Map<string, number>();
+
+  type ImportRowResult = {
+    row: number;
+    name: string;
+    email: string;
+    registerNumber: string;
+    department: string;
+    year: string;
+    status: 'success' | 'failed' | 'duplicate';
+    reason?: string;
+    uid?: string;
+  };
+
+  const results: ImportRowResult[] = [];
+  let succeeded = 0;
+  let duplicates = 0;
+  let failed = 0;
+
+  for (let idx = 0; idx < rawRows.length; idx++) {
+    const row = rawRows[idx] || {};
+    const rowNum = idx + 2;
+
+    const name = String(row.name || '').replace(/[\u0000-\u001f<>]/g, '').trim();
+    const registerNumber = normalizeRegistrationNumber(row.registerNumber || row.regNo || row.registrationNumber);
+    const email = normalizeEmail(row.email);
+    const department = String(row.department || row.dept || '').trim();
+    const year = String(row.year || row.academicYear || '').trim();
+    const phone = String(row.phone || '').trim().slice(0, 40);
+
+    // Validation checks
+    if (!name || name.length < 2 || name.length > 100) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: 'Student name must be between 2 and 100 characters.' });
+      continue;
+    }
+
+    if (!registerNumber || !/^[A-Z0-9][A-Z0-9-]{2,31}$/.test(registerNumber)) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: 'Registration number must contain 3–32 letters, digits, or hyphens.' });
+      continue;
+    }
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: 'Valid college email address is required.' });
+      continue;
+    }
+
+    if (domains.length > 0 && !domains.some((d) => email.endsWith(`@${d}`))) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: `Email domain must be one of: ${domains.map((d) => `@${d}`).join(', ')}` });
+      continue;
+    }
+
+    if (!SUPPORTED_STUDENT_DEPARTMENTS.includes(department)) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: `Department "${department}" is not supported. Must be Biotechnology or Biomedical Engineering.` });
+      continue;
+    }
+
+    if (!SUPPORTED_STUDENT_YEARS.includes(year)) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: `Academic year "${year}" is not supported. Must be First Year, Second Year, or Third Year.` });
+      continue;
+    }
+
+    // Department boundary enforcement for non-platform administrators
+    if (actor.role !== 'ADMIN' && (!actor.department || department !== actor.department)) {
+      failed++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: `Access denied: You can only import students for your authorized department (${actor.department}).` });
+      continue;
+    }
+
+    // Check duplicates within the file
+    if (fileEmails.has(email)) {
+      duplicates++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'duplicate', reason: `Duplicate email: Matches earlier row ${fileEmails.get(email)} in this file.` });
+      continue;
+    }
+    if (fileRegNos.has(registerNumber)) {
+      duplicates++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'duplicate', reason: `Duplicate registration number: Matches earlier row ${fileRegNos.get(registerNumber)} in this file.` });
+      continue;
+    }
+
+    // Check duplicates against existing database records
+    if (existingEmails.has(email)) {
+      duplicates++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'duplicate', reason: `Email ${email} is already registered in HackHub.` });
+      continue;
+    }
+    if (existingRegNos.has(registerNumber)) {
+      duplicates++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'duplicate', reason: `Registration number ${registerNumber} is already assigned in HackHub.` });
+      continue;
+    }
+
+    // Mark as seen in file
+    fileEmails.set(email, rowNum);
+    fileRegNos.set(registerNumber, rowNum);
+
+    // Proceed to create record
+    try {
+      let authUser: any = null;
+      try {
+        authUser = await adminAuth.getUserByEmail(email);
+      } catch (authErr: any) {
+        if (authErr.code === 'auth/user-not-found') {
+          authUser = await adminAuth.createUser({
+            email,
+            displayName: name,
+            disabled: false
+          });
+        } else {
+          throw authErr;
+        }
+      }
+
+      const uid = authUser.uid;
+      const normalizedEmailId = encodeURIComponent(email);
+      const studentRef = db.collection('students').doc(uid);
+      const regRef = db.collection('reg_lookups').doc(registerNumber);
+      const emailRef = db.collection('student_email_lookups').doc(normalizedEmailId);
+      const auditRef = db.collection('audit_logs').doc();
+
+      const { FieldValue } = await import('firebase-admin/firestore');
+      const timestamp = FieldValue.serverTimestamp();
+
+      const batch = db.batch();
+      batch.set(studentRef, {
+        uid,
+        name,
+        registerNumber,
+        registrationNumberNormalized: registerNumber,
+        email,
+        department,
+        year,
+        phone,
+        role: 'STUDENT',
+        accountStatus: 'active',
+        isActive: true,
+        provisionedBy: actor.uid,
+        provisionedAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }, { merge: true });
+
+      batch.set(regRef, {
+        uid,
+        registerNumber,
+        email,
+        department,
+        year,
+        name,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }, { merge: true });
+
+      batch.set(emailRef, {
+        uid,
+        email,
+        registerNumber,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }, { merge: true });
+
+      batch.set(auditRef, {
+        id: auditRef.id,
+        actorUid: actor.uid,
+        actorEmail: actor.email || '',
+        actorName: 'Faculty Administrator',
+        actorRole: actor.role || 'FACULTY',
+        targetUid: uid,
+        targetEmail: email,
+        targetName: name,
+        action: 'STUDENT_BULK_IMPORTED',
+        timestamp,
+        details: {
+          registerNumber,
+          department,
+          year,
+          rowNumber: rowNum
+        }
+      });
+
+      await batch.commit();
+
+      if (apiKey) {
+        fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${encodeURIComponent(apiKey)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestType: 'PASSWORD_RESET', email })
+        }).catch((e) => console.warn('[BulkImport] Password setup invite warning:', e.message));
+      }
+
+      existingEmails.set(email, uid);
+      existingRegNos.set(registerNumber, uid);
+      succeeded++;
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'success', uid });
+    } catch (writeErr: any) {
+      failed++;
+      console.error(`[BulkImport] Row ${rowNum} write error:`, writeErr);
+      results.push({ row: rowNum, name, email, registerNumber, department, year, status: 'failed', reason: writeErr.message || 'Database write error' });
+    }
+  }
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      summary: {
+        total: rawRows.length,
+        succeeded,
+        failed,
+        duplicates
+      },
+      results
+    }
+  };
 }
 
 /**
@@ -1094,6 +1370,22 @@ export default async function handler(req: any, res: any) {
       email: verification.email,
       department: verification.department,
       role: verification.role
+    });
+    return res.status(result.status).json(result.body);
+  }
+
+  if (req.body?.action === 'bulk-import-students') {
+    const authHeader = req.headers['authorization'];
+    const verification = await verifyServerRequest(authHeader, 'STAFF');
+    if (!verification.valid || !verification.uid) {
+      return res.status(verification.status).json({ error: verification.error || 'Authorized staff access is required.' });
+    }
+    const result = await bulkImportStudentAccounts(req.body, {
+      uid: verification.uid,
+      email: verification.email,
+      department: verification.department,
+      role: verification.role,
+      isPlatformAdministrator: verification.isPlatformAdministrator === true
     });
     return res.status(result.status).json(result.body);
   }

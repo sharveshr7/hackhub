@@ -113,9 +113,10 @@ assert(
 
 assert(
   firestoreRules.includes('!isOwner(adminId)') &&
-  firestoreRules.includes('request.resource.data.approvalStatus == resource.data.approvalStatus') &&
-  firestoreRules.includes('request.resource.data.role == resource.data.role'),
-  'Scenario 6 (Rules): Firestore security rules forbid self-updating approvalStatus, role, or permissions'
+  firestoreRules.includes('request.resource.data.role == resource.data.role') &&
+  firestoreRules.includes('request.resource.data.department == resource.data.department') &&
+  firestoreRules.includes('request.resource.data.isPlatformAdmin == resource.data.isPlatformAdmin'),
+  'Scenario 6 (Rules): Firestore security rules forbid self-updating role, platformAdmin status, or department'
 );
 
 // ------------------------------------------------------------------------
@@ -175,7 +176,7 @@ assert(
 // ------------------------------------------------------------------------
 console.log('\n--- SCENARIO 10: Department Validation & Flagging ---');
 const deptConstants = fs.readFileSync('src/constants/departments.ts', 'utf8');
-const facultyApprovalsPage = fs.readFileSync('src/pages/admin/AdminFacultyApprovalsPage.tsx', 'utf8');
+const bulkImportModal = fs.readFileSync('src/components/admin/BulkStudentImportModal.tsx', 'utf8');
 
 assert(
   deptConstants.includes("export const SUPPORTED_DEPARTMENTS = [") &&
@@ -186,9 +187,9 @@ assert(
 );
 
 assert(
-  facultyApprovalsPage.includes('!isSupportedDepartment(admin.department)') &&
-  facultyApprovalsPage.includes('canApprove'),
-  'Scenario 10 (UI): Unsupported departments block approval and enforce departmental boundaries'
+  bulkImportModal.includes('SUPPORTED_DEPARTMENTS.includes(department') &&
+  bulkImportModal.includes('Invalid department'),
+  'Scenario 10 (UI): Unsupported departments are strictly blocked and flagged in student imports'
 );
 
 // ------------------------------------------------------------------------

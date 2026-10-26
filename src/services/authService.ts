@@ -356,22 +356,10 @@ export const authService = {
           // Check if profile is already registered in admins
           const existingAdminSnap = await getDoc(doc(db, 'admins', userCredential.user.uid));
           if (existingAdminSnap.exists()) {
-            const adminData = existingAdminSnap.data() as Admin;
             await signOut(auth);
-            if (adminData.approvalStatus === 'PENDING') {
-              throw new Error(
-                'Your faculty registration has already been submitted and is pending administrator verification. Please check back once verified.'
-              );
-            }
-            if (
-              adminData.approvalStatus === 'APPROVED' ||
-              (!adminData.approvalStatus && (adminData.role || '').toUpperCase() === 'ADMIN')
-            ) {
-              throw new Error(
-                'An approved administrator account with this email already exists. Please proceed to Admin Sign In.'
-              );
-            }
-            throw new Error('An account with this email already exists. Please sign in instead.');
+            throw new Error(
+              'An administrator account with this email already exists. Please proceed to Admin Sign In.'
+            );
           }
 
           // If no admin doc exists, this was an incomplete registration where Auth succeeded but profile write failed.
@@ -406,18 +394,22 @@ export const authService = {
       facultyId: adminInfo.facultyId.trim(),
       institution: adminInfo.institution?.trim() || 'KalaignarKarunanidhi Institute Of Technology',
       role: 'FACULTY',
-      approvalStatus: 'PENDING',
+      approvalStatus: 'APPROVED',
+      isActive: true,
+      accountStatus: 'active',
       ...(validSpec ? { researchSpecialization: validSpec } : {}),
       ...(validCustom ? { customSpecialization: validCustom } : {})
     };
 
-    // 2. Write pending faculty profile to Firestore at admins/{uid}
+    // 2. Write faculty profile to Firestore at admins/{uid}
     try {
-      console.log('[AuthService] Writing pending faculty profile to admins/' + uid);
+      console.log('[AuthService] Writing faculty profile to admins/' + uid);
       await setDoc(doc(db, 'admins', uid), {
         ...adminRecord,
         role: 'FACULTY',
-        approvalStatus: 'PENDING',
+        approvalStatus: 'APPROVED',
+        isActive: true,
+        accountStatus: 'active',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       });
@@ -427,7 +419,7 @@ export const authService = {
       if (!verifySnap.exists()) {
         throw new Error('Profile verification failed: admin document was not created.');
       }
-      console.log('[AuthService] Faculty profile confirmed in Firestore with PENDING status for UID:', uid);
+      console.log('[AuthService] Faculty profile confirmed in Firestore for UID:', uid);
     } catch (firestoreErr: any) {
       console.error('[AuthService] Profile creation failed for UID:', uid, firestoreErr.code, firestoreErr.message);
       // Clean up newly created auth user so the account is not orphaned
@@ -472,37 +464,17 @@ export const authService = {
       const adminData = adminSnap.data() as Admin;
       const roleUpper = (adminData.role || '').toUpperCase();
 
-      // Validate account status and approval
-      if (adminData.approvalStatus === 'PENDING') {
+      const isStaffRole = ['ADMIN', 'FACULTY'].includes(roleUpper);
+      if (!isStaffRole) {
         await signOut(auth);
         useAppStore.getState().logout();
-        throw new Error(
-          'Your faculty registration is currently pending approval by the college administrator. Please check back once verified.'
-        );
-      }
-
-      if (adminData.approvalStatus === 'REJECTED') {
-        await signOut(auth);
-        useAppStore.getState().logout();
-        throw new Error(
-          'Your faculty registration was not approved. Please contact your department coordinator.'
-        );
+        throw new Error('This account does not have administrator access.');
       }
 
       if (adminData.isActive === false || (adminData as any).accountStatus === 'deactivated') {
         await signOut(auth);
         useAppStore.getState().logout();
         throw new Error('This administrator account has been deactivated. Please contact the department administrator.');
-      }
-
-      const isApproved =
-        adminData.approvalStatus === 'APPROVED' ||
-        (!adminData.approvalStatus && ['ADMIN', 'FACULTY'].includes(roleUpper));
-
-      if (!isApproved) {
-        await signOut(auth);
-        useAppStore.getState().logout();
-        throw new Error('This account does not have administrator access.');
       }
 
       const effectiveRole: UserRole = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';

@@ -93,14 +93,18 @@ export const submissionService = {
     const teamInStore = useAppStore.getState().teams.find((t) => t.id === data.teamId);
     let leaderId = data.leaderId || teamInStore?.leaderId;
     let memberIds = data.memberIds || teamInStore?.memberIds || (teamInStore?.members ? teamInStore.members.map((m) => m.studentId) : undefined);
+    let department = data.department || teamInStore?.department || currentStudent?.department || '';
+    let academicYear = data.academicYear || teamInStore?.academicYear || currentStudent?.year || '';
 
-    if (!leaderId && data.teamId) {
+    if (data.teamId) {
       try {
         const teamSnap = await getDoc(doc(db, 'teams', data.teamId));
         if (teamSnap.exists()) {
           const tData = teamSnap.data();
-          leaderId = tData.leaderId;
-          memberIds = tData.memberIds || (tData.members ? tData.members.map((m: any) => m.studentId) : undefined);
+          if (tData.leaderId) leaderId = tData.leaderId;
+          if (tData.memberIds) memberIds = tData.memberIds;
+          if (tData.department) department = tData.department;
+          if (tData.academicYear) academicYear = tData.academicYear;
         }
       } catch {
         // Non-blocking
@@ -114,8 +118,8 @@ export const submissionService = {
       teamName: data.teamName,
       leaderId,
       memberIds,
-      department: data.department || currentStudent?.department || '',
-      academicYear: data.academicYear || currentStudent?.year || teamInStore?.academicYear || '',
+      department,
+      academicYear,
       projectTitle: data.projectTitle || 'Untitled Prototype',
       problemStatementId: data.problemStatementId || '',
       problemStatementTitle: data.problemStatementTitle || 'General Track',
@@ -143,15 +147,26 @@ export const submissionService = {
       updatedAt: nowIso
     };
 
+    const subDocRef = doc(db, 'submissions', subId);
+    let existingCreatedAt: any = null;
+    try {
+      const existingSnap = await getDoc(subDocRef);
+      if (existingSnap.exists()) {
+        existingCreatedAt = existingSnap.data()?.createdAt;
+      }
+    } catch {
+      // Non-blocking
+    }
+
     const cleanSubmission = Object.fromEntries(
       Object.entries({
         ...submissionDoc,
-        createdAt: serverTimestamp(),
+        ...(existingCreatedAt ? { createdAt: existingCreatedAt } : { createdAt: serverTimestamp() }),
         updatedAt: serverTimestamp()
       }).filter(([, value]) => value !== undefined)
     );
 
-    await setDoc(doc(db, 'submissions', subId), cleanSubmission);
+    await setDoc(subDocRef, cleanSubmission, { merge: true });
 
     useAppStore.getState().saveSubmission(submissionDoc);
     return submissionDoc;
