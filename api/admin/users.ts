@@ -638,7 +638,7 @@ export default async function handler(req: any, res: any) {
         status: isAccountActive ? 'active' : 'inactive',
         isActive: isAccountActive,
         accountStatus: targetData.accountStatus || (isAccountActive ? 'active' : 'disabled'),
-        approvalStatus: targetData.approvalStatus || (isStudent ? 'APPROVED' : 'PENDING'),
+        approvalStatus: targetData.approvalStatus || 'APPROVED',
         isPlatformAdmin: targetData.isPlatformAdmin === true,
         isDepartmentApprover: targetData.isDepartmentApprover === true,
         ...(isStudent ? {

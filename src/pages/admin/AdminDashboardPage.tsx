@@ -15,11 +15,8 @@ import {
   FileText,
   TrendingUp,
   QrCode,
-  Radio,
   Building2,
-  ShieldAlert,
-  Award,
-  Filter
+  Award
 } from 'lucide-react';
 import {
   XAxis,
@@ -33,7 +30,7 @@ import {
 import { SUPPORTED_DEPARTMENTS, isSupportedDepartment, getDepartmentBadge } from '../../constants/departments';
 
 export const AdminDashboardPage: React.FC = () => {
-  const { currentUser, hackathons, registrations, teams, submissions, students, admins } = useAppStore();
+  const { currentUser, hackathons, registrations, teams, submissions, students } = useAppStore();
   
   const platformAdministrator = isPlatformAdministrator(currentUser);
   const facultyDept = platformAdministrator ? undefined : currentUser?.adminData?.department;
@@ -72,8 +69,6 @@ export const AdminDashboardPage: React.FC = () => {
   const completedAchievementsCount = scopedSubmissions.filter(
     (s) => s.status === 'EVALUATED' || s.status === 'SHORTLISTED' || Boolean(s.rank)
   ).length;
-
-  const activeEvent = scopedHackathons.find((h) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN') || scopedHackathons[0];
 
   // Dynamic Participation Monitoring metrics per hackathon
   const participationMonitoringData = useMemo(() => {

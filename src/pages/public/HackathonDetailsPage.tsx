@@ -11,9 +11,7 @@ import { Input } from '../../components/common/Input';
 import { useToast } from '../../components/common/Toast';
 import confetti from 'canvas-confetti';
 import {
-  Calendar,
   Clock,
-  MapPin,
   Users,
   Trophy,
   CheckCircle2,
@@ -23,7 +21,6 @@ import {
   HelpCircle,
   ArrowRight,
   ChevronRight,
-  ArrowLeft,
   Sparkles,
   Layers,
   BookOpen,
@@ -138,7 +135,6 @@ export const HackathonDetailsPage: React.FC = () => {
 
   const statusUpper = String(hackathon.status).toUpperCase();
   const isRegOpen = (statusUpper === 'REGISTRATION_OPEN' || statusUpper === 'PUBLISHED') && (!regDeadline || now <= regDeadline);
-  const isRegClosed = regDeadline ? now > regDeadline : statusUpper === 'REGISTRATION_CLOSED';
   const isLive = statusUpper === 'LIVE' || (eventStart && eventEnd && now >= eventStart && now <= eventEnd);
   const isCompleted = statusUpper === 'COMPLETED' || (eventEnd ? now > eventEnd : false);
 

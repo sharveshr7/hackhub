@@ -39,17 +39,10 @@ export const AdminCreateHackathonPage: React.FC = () => {
   const [category, setCategory] = useState<EventCategory>('HACKATHON');
   const [officialUrl, setOfficialUrl] = useState('');
   const [shortDescription, setShortDescription] = useState('');
-  const [department, setDepartment] = useState<string>(facultyDept || currentUser?.adminData?.department || (isPlatformAdmin ? 'Biomedical Engineering' : ''));
-
-  // Ensure department is synchronized once currentUser profile is loaded
-  React.useEffect(() => {
-    if (!department) {
-      const defaultDept = facultyDept || currentUser?.adminData?.department || (isPlatformAdmin ? 'Biomedical Engineering' : '');
-      if (defaultDept) {
-        setDepartment(defaultDept);
-      }
-    }
-  }, [facultyDept, currentUser, isPlatformAdmin, department]);
+  const defaultDept = facultyDept || currentUser?.adminData?.department || (isPlatformAdmin ? 'Biomedical Engineering' : '');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('');
+  const department = selectedDepartment || defaultDept;
+  const setDepartment = setSelectedDepartment;
 
   // Collapsed "Additional Details" section state
   const [isAdditionalDetailsOpen, setIsAdditionalDetailsOpen] = useState(false);
