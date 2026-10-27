@@ -193,7 +193,7 @@ export const BulkStudentImportModal: React.FC<BulkStudentImportModalProps> = ({
           // Handle simple CSV splitting
           const parts = line.split(',').map((p) => p.trim().replace(/^["']|["']$/g, ''));
 
-          const name = (parts[nameIdx] || '').replace(/[\u0000-\u001f<>]/g, '').trim();
+          const name = (parts[nameIdx] || '').replace(new RegExp('[\\u0000-\\u001f<>]', 'g'), '').trim();
           const email = (parts[emailIdx] || '').trim().toLowerCase();
           const registerNumber = (parts[regIdx] || '').trim().toUpperCase().replace(/\s+/g, '');
           const department = (deptIdx !== -1 ? parts[deptIdx] : facultyDept) || '';

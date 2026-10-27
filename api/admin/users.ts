@@ -860,7 +860,7 @@ export default async function handler(req: any, res: any) {
       }
 
       // Field Validation
-      const name = String(body.name || '').replace(/[\u0000-\u001f<>]/g, '').trim();
+      const name = String(body.name || '').replace(new RegExp('[\\u0000-\\u001f<>]', 'g'), '').trim();
       if (name.length < 2 || name.length > 100) {
         return res.status(400).json({ error: 'Full name must be between 2 and 100 characters.' });
       }
@@ -1210,7 +1210,7 @@ export default async function handler(req: any, res: any) {
 
       // Name Update
       if (body.name !== undefined) {
-        const cleanName = String(body.name).replace(/[\u0000-\u001f<>]/g, '').trim();
+        const cleanName = String(body.name).replace(new RegExp('[\\u0000-\\u001f<>]', 'g'), '').trim();
         if (cleanName.length < 2 || cleanName.length > 100) {
           return res.status(400).json({ error: 'Name must be between 2 and 100 characters.' });
         }

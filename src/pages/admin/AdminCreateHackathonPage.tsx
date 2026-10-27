@@ -39,7 +39,17 @@ export const AdminCreateHackathonPage: React.FC = () => {
   const [category, setCategory] = useState<EventCategory>('HACKATHON');
   const [officialUrl, setOfficialUrl] = useState('');
   const [shortDescription, setShortDescription] = useState('');
-  const [department, setDepartment] = useState<string>(facultyDept || '');
+  const [department, setDepartment] = useState<string>(facultyDept || currentUser?.adminData?.department || (isPlatformAdmin ? 'Biomedical Engineering' : ''));
+
+  // Ensure department is synchronized once currentUser profile is loaded
+  React.useEffect(() => {
+    if (!department) {
+      const defaultDept = facultyDept || currentUser?.adminData?.department || (isPlatformAdmin ? 'Biomedical Engineering' : '');
+      if (defaultDept) {
+        setDepartment(defaultDept);
+      }
+    }
+  }, [facultyDept, currentUser, isPlatformAdmin, department]);
 
   // Collapsed "Additional Details" section state
   const [isAdditionalDetailsOpen, setIsAdditionalDetailsOpen] = useState(false);
@@ -86,7 +96,8 @@ export const AdminCreateHackathonPage: React.FC = () => {
       return;
     }
 
-    if (!isSupportedDepartment(department)) {
+    const effectiveDept = department || facultyDept || currentUser?.adminData?.department || (isPlatformAdmin ? 'Biomedical Engineering' : '');
+    if (!isSupportedDepartment(effectiveDept)) {
       setFormError('Select Biotechnology or Biomedical Engineering.');
       return;
     }
@@ -175,7 +186,7 @@ export const AdminCreateHackathonPage: React.FC = () => {
         category,
         officialUrl: trimmedUrl,
         externalRegistrationUrl: trimmedUrl,
-        department,
+        department: effectiveDept,
         shortDescription: cleanDesc,
         description: cleanDesc,
         isExternal: !isOurCollege,

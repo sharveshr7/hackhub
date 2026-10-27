@@ -15,13 +15,17 @@ service firebase.storage {
 
     function isStaff() {
       return isAuthenticated() && firestore.exists(adminPath()) &&
-        adminData().isActive != false &&
-        adminData().accountStatus != 'deactivated' &&
+        (!('isActive' in adminData()) || adminData().isActive != false) &&
+        (!('accountStatus' in adminData()) || adminData().accountStatus != 'deactivated') &&
         adminData().role in ['ADMIN', 'FACULTY', 'admin', 'faculty'];
     }
 
     function isPlatformAdmin() {
-      return isStaff() && adminData().isPlatformAdmin == true;
+      return isStaff() && (
+        ('isPlatformAdmin' in adminData() && adminData().isPlatformAdmin == true) ||
+        ('isFirstAdmin' in adminData() && adminData().isFirstAdmin == true) ||
+        adminData().role in ['ADMIN', 'admin']
+      );
     }
 
     function canAccessScope(department, academicYear) {

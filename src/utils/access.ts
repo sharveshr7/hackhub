@@ -6,7 +6,13 @@ export function isStaffRole(role: UserRole | null | undefined): boolean {
 }
 
 export function isPlatformAdministrator(user: CurrentUser | null | undefined): boolean {
-  return user?.role === 'ADMIN' && user.adminData?.isPlatformAdmin === true;
+  if (!user) return false;
+  if (user.role === 'ADMIN') return true;
+  const adminData = user.adminData;
+  if (adminData?.isPlatformAdmin === true) return true;
+  if (adminData?.isFirstAdmin === true) return true;
+  if ((adminData?.role as string) === 'ADMIN') return true;
+  return false;
 }
 
 export function isDepartmentApprover(user: CurrentUser | null | undefined): boolean {

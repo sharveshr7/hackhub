@@ -478,7 +478,8 @@ export const authService = {
         throw new Error('This administrator account has been deactivated. Please contact the department administrator.');
       }
 
-      const effectiveRole: UserRole = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
+      const isPlatformAdmin = adminData.isPlatformAdmin === true || adminData.isFirstAdmin === true || roleUpper === 'ADMIN';
+      const effectiveRole: UserRole = isPlatformAdmin ? 'ADMIN' : 'FACULTY';
 
       const currentUser: CurrentUser = {
         uid,

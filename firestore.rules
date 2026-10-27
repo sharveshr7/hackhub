@@ -21,13 +21,17 @@ service cloud.firestore {
     function isStaff() {
       return isAuthenticated() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-        getAdminData().isActive != false &&
-        getAdminData().accountStatus != 'deactivated' &&
+        (!('isActive' in getAdminData()) || getAdminData().isActive != false) &&
+        (!('accountStatus' in getAdminData()) || getAdminData().accountStatus != 'deactivated') &&
         getAdminData().role in ['ADMIN', 'FACULTY', 'admin', 'faculty'];
     }
 
     function isPlatformAdmin() {
-      return isStaff() && getAdminData().isPlatformAdmin == true;
+      return isStaff() && (
+        ('isPlatformAdmin' in getAdminData() && getAdminData().isPlatformAdmin == true) ||
+        ('isFirstAdmin' in getAdminData() && getAdminData().isFirstAdmin == true) ||
+        getAdminData().role in ['ADMIN', 'admin']
+      );
     }
 
     function getAdminDept() {

@@ -37,7 +37,8 @@ export function useAuth() {
             (adminData as any).accountStatus !== 'deactivated';
 
           if (isStaffRole && isActive) {
-            const effectiveRole: UserRole = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
+            const isPlatformAdmin = adminData.isPlatformAdmin === true || adminData.isFirstAdmin === true || roleUpper === 'ADMIN';
+            const effectiveRole: UserRole = isPlatformAdmin ? 'ADMIN' : 'FACULTY';
             const currentAdmin: CurrentUser = {
               uid: fbUser.uid,
               email: fbUser.email || '',
