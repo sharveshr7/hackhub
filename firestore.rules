@@ -190,8 +190,8 @@ service cloud.firestore {
           )
         );
       allow list: if resource.data.status in [
-        'PUBLISHED', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'UPCOMING', 'ONGOING', 'COMPLETED', 'CANCELLED', 'SUBMISSION_CLOSED',
-        'published', 'registration_open', 'registration_closed', 'upcoming', 'ongoing', 'completed', 'cancelled', 'submission_closed'
+        'PUBLISHED', 'REGISTRATION_OPEN', 'REGISTRATION_CLOSED', 'UPCOMING', 'ONGOING', 'LIVE', 'COMPLETED', 'CANCELLED', 'SUBMISSION_CLOSED',
+        'published', 'registration_open', 'registration_closed', 'upcoming', 'ongoing', 'live', 'completed', 'cancelled', 'submission_closed'
       ] || (isStaff() && (isPlatformAdmin() || resource.data.department == getAdminDept() || resource.data.publishedBy == request.auth.uid));
       allow create: if isStaff() &&
         request.resource.data.title is string && request.resource.data.title.size() > 0 &&
@@ -221,7 +221,7 @@ service cloud.firestore {
         request.resource.data.department == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.department &&
         request.resource.data.academicYear == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.year &&
         exists(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)) &&
-        get(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)).data.status in ['PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'published', 'registration_open', 'upcoming'];
+        get(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)).data.status in ['PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'LIVE', 'ONGOING', 'published', 'registration_open', 'upcoming', 'live', 'ongoing'];
       allow update: if (
         canAccessScopedDepartment(resource.data.department, resource.data.academicYear) &&
         request.resource.data.studentId == resource.data.studentId &&
