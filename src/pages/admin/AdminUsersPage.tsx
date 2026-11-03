@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAppStore } from '../../lib/store';
 import { isPlatformAdministrator } from '../../utils/access';
 import { userManagementService, CreateUserPayload, UpdateUserPayload } from '../../services/userManagementService';
@@ -121,6 +121,8 @@ export const AdminUsersPage: React.FC = () => {
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
+  const lastToastErrorRef = useRef<string | null>(null);
+
   // Fetch users from server API
   const loadUsers = useCallback(async (isRefresh = false) => {
     if (isRefresh) setIsRefreshing(true);
@@ -141,10 +143,15 @@ export const AdminUsersPage: React.FC = () => {
       setUsers(response.users);
       setStats(response.stats);
       setPagination(response.pagination);
+      lastToastErrorRef.current = null;
     } catch (err: any) {
       console.error('[AdminUsersPage] Error loading users:', err);
-      setErrorMessage(err.message || 'Failed to load user records.');
-      showToast('error', 'Error Loading Users', err.message || 'Unable to retrieve user management data from server.');
+      const msg = err.message || 'Failed to load user records.';
+      setErrorMessage(msg);
+      if (lastToastErrorRef.current !== msg) {
+        lastToastErrorRef.current = msg;
+        showToast('error', 'Error Loading Users', msg);
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -377,78 +384,104 @@ export const AdminUsersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Overview Statistics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        {/* Total Users */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Users</span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
+      {/* Overview Statistics Cards - Render only when not in error state */}
+      {!errorMessage && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {/* Total Users */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Users</span>
+              <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Users className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900">{stats.totalUsers}</span>
+              <span className="text-xs text-slate-500">records</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.totalUsers}</span>
-            <span className="text-xs text-slate-500">records</span>
-          </div>
-        </div>
 
-        {/* Active Accounts */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active</span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <UserCheck className="w-4 h-4" />
+          {/* Active Accounts */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active</span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <UserCheck className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-emerald-600">{stats.activeUsers}</span>
+              <span className="text-xs text-slate-500">accounts</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-emerald-600">{stats.activeUsers}</span>
-            <span className="text-xs text-slate-500">accounts</span>
-          </div>
-        </div>
 
-        {/* Inactive Accounts */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Inactive</span>
-            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
-              <UserX className="w-4 h-4" />
+          {/* Inactive Accounts */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Inactive</span>
+              <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+                <UserX className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-rose-600">{stats.inactiveUsers}</span>
+              <span className="text-xs text-slate-500">deactivated</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-rose-600">{stats.inactiveUsers}</span>
-            <span className="text-xs text-slate-500">deactivated</span>
-          </div>
-        </div>
 
-        {/* Students Count */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Students</span>
-            <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center">
-              <GraduationCap className="w-4 h-4" />
+          {/* Students Count */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Students</span>
+              <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center">
+                <GraduationCap className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900">{stats.studentCount}</span>
+              <span className="text-xs text-slate-500">enrolled</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.studentCount}</span>
-            <span className="text-xs text-slate-500">enrolled</span>
-          </div>
-        </div>
 
-        {/* Faculty & Admins Count */}
-        <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow col-span-2 sm:col-span-1">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Faculty & Admins</span>
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Shield className="w-4 h-4" />
+          {/* Faculty & Admins Count */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm hover:shadow-md transition-shadow col-span-2 sm:col-span-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Faculty & Admins</span>
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                <Shield className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900">{stats.facultyCount}</span>
+              <span className="text-xs text-slate-500">staff</span>
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-slate-900">{stats.facultyCount}</span>
-            <span className="text-xs text-slate-500">staff</span>
-          </div>
         </div>
-      </div>
+      )}
+
+      {/* Actionable Error Banner if API failed */}
+      {errorMessage && !isLoading && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-rose-950">Error Loading User Directory</h3>
+              <p className="text-xs text-rose-700 mt-0.5">{errorMessage}</p>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => loadUsers(true)}
+            className="border-rose-300 text-rose-800 hover:bg-rose-100 shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+            Retry
+          </Button>
+        </div>
+      )}
 
       {/* Search & Filter Toolbar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-4">

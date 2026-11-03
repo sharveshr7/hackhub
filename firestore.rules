@@ -207,7 +207,9 @@ service cloud.firestore {
 
     // Registrations Collection: Students manage own registrations; faculty access scoped to department
     match /registrations/{registrationId} {
-      allow read: if (isAuthenticated() && resource.data.studentId == request.auth.uid) ||
+      allow get: if (isAuthenticated() && (resource == null || resource.data.studentId == request.auth.uid)) ||
+        (resource != null && canAccessScopedDepartment(resource.data.department, resource.data.academicYear));
+      allow list: if (isAuthenticated() && resource.data.studentId == request.auth.uid) ||
         canAccessScopedDepartment(resource.data.department, resource.data.academicYear);
       allow create: if isAuthenticated() &&
         request.resource.data.studentId == request.auth.uid &&
@@ -219,9 +221,15 @@ service cloud.firestore {
           (request.resource.data.isExternal != true && request.resource.data.attendanceStatus == 'PENDING')) &&
         exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
         request.resource.data.department == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.department &&
-        request.resource.data.academicYear == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.year &&
+        (
+          request.resource.data.academicYear == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.year ||
+          request.resource.data.academicYear == get(/databases/$(database)/documents/students/$(request.auth.uid)).data.academicYear
+        ) &&
         exists(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)) &&
-        get(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)).data.status in ['PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'LIVE', 'ONGOING', 'published', 'registration_open', 'upcoming', 'live', 'ongoing'];
+        get(/databases/$(database)/documents/hackathons/$(request.resource.data.hackathonId)).data.status in [
+          'PUBLISHED', 'REGISTRATION_OPEN', 'UPCOMING', 'LIVE', 'ONGOING', 'OPEN',
+          'published', 'registration_open', 'upcoming', 'live', 'ongoing', 'open'
+        ];
       allow update: if (
         canAccessScopedDepartment(resource.data.department, resource.data.academicYear) &&
         request.resource.data.studentId == resource.data.studentId &&

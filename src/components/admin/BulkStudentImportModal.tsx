@@ -295,12 +295,26 @@ export const BulkStudentImportModal: React.FC<BulkStudentImportModalProps> = ({
 
       const res = await adminService.bulkImportStudents(payload);
 
+      // Collect client-side rejected rows to present complete visibility across all rows
+      const clientSkippedResults = parsedRows
+        .filter((r) => !r.isValid)
+        .map((r) => ({
+          row: r.rowNum,
+          name: r.name,
+          email: r.email,
+          registerNumber: r.registerNumber,
+          status: (r.isDuplicate ? 'duplicate' : 'failed') as 'duplicate' | 'failed',
+          reason: r.validationError || (r.isDuplicate ? 'Duplicate record detected' : 'Validation failed')
+        }));
+
+      const allResults = [...(res.results || []), ...clientSkippedResults].sort((a, b) => a.row - b.row);
+
       setImportSummary({
         total: parsedRows.length,
         succeeded: res.summary.succeeded,
         failed: res.summary.failed + parsedRows.filter((r) => !r.isValid && !r.isDuplicate).length,
         duplicates: res.summary.duplicates + parsedRows.filter((r) => r.isDuplicate).length,
-        results: res.results
+        results: allResults
       });
 
       if (res.summary.succeeded > 0) {

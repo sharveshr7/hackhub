@@ -89,10 +89,30 @@ export const HackathonDetailsPage: React.FC = () => {
   const [teamCodeToJoin, setTeamCodeToJoin] = useState('');
   const [teamNameError, setTeamNameError] = useState('');
   const [teamCodeError, setTeamCodeError] = useState('');
+  const [studentPhone, setStudentPhone] = useState('');
   const [acceptedRules, setAcceptedRules] = useState(false);
   const [generatedRegNumber, setGeneratedRegNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showStickyBar, setShowStickyBar] = useState(false);
+
+  useEffect(() => {
+    if (currentUser?.studentData?.phone) {
+      setStudentPhone(currentUser.studentData.phone);
+    }
+  }, [currentUser]);
+
+  const displayRules = useMemo(() => {
+    if (hackathon?.rules && Array.isArray(hackathon.rules) && hackathon.rules.length > 0) {
+      return hackathon.rules;
+    }
+    return [
+      'Original Work & Academic Integrity: All code, designs, and project artifacts must be developed during the hackathon period or properly attributed as open-source libraries.',
+      'Campus & Professional Conduct: Participants must uphold college discipline, respect fellow competitors, mentors, and jury members.',
+      'Zero Tolerance for Plagiarism: Submitting pre-built complete solutions or copying another team\'s solution will result in immediate disqualification.',
+      'Team Cohesion & Fair Play: Members must collaborate respectfully; unsportsmanlike behavior or unauthorized outside assistance will lead to forfeiture.',
+      'Milestone & Check-in Adherence: Mandatory attendance at scheduled mentor check-ins and jury reviews is required for certificate eligibility.'
+    ];
+  }, [hackathon?.rules]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -174,11 +194,30 @@ export const HackathonDetailsPage: React.FC = () => {
 
       setGeneratedRegNumber(res.registration?.registrationNumber || 'REG-CONFIRMED');
 
-      // 2. Team creation or join if chosen
+      // 2. Team creation or join if chosen (with graceful error handling so registration is preserved)
       if (teamChoice === 'create' && newTeamName.trim()) {
-        await teamService.createTeam(hackathon.id, newTeamName.trim(), currentUser.studentData);
+        try {
+          const teamRes = await teamService.createTeam(hackathon.id, newTeamName.trim(), currentUser.studentData);
+          if (!teamRes.success) {
+            showToast('warning', 'Registration Confirmed (Team Note)', teamRes.message);
+          }
+        } catch (teamErr: any) {
+          showToast('warning', 'Registration Confirmed (Team Note)', teamErr.message || 'Could not create team automatically; you can form it from My Teams.');
+        }
       } else if (teamChoice === 'join' && teamCodeToJoin.trim()) {
-        await teamService.joinTeamByCode(teamCodeToJoin.trim(), currentUser.studentData);
+        try {
+          const joinRes = await teamService.joinTeamByCode(teamCodeToJoin.trim(), currentUser.studentData);
+          if (!joinRes.success) {
+            showToast('warning', 'Registration Confirmed (Team Note)', joinRes.message);
+          }
+        } catch (joinErr: any) {
+          showToast('warning', 'Registration Confirmed (Team Note)', joinErr.message || 'Could not join team automatically; you can join from My Teams.');
+        }
+      }
+
+      // 3. Persist phone number update if student provided a new number
+      if (studentPhone.trim() && studentPhone.trim() !== currentUser.studentData.phone) {
+        studentService.updateStudentProfile(currentUser.studentData.uid, { phone: studentPhone.trim() }).catch(() => {});
       }
 
       // Confetti celebration
@@ -1064,9 +1103,9 @@ export const HackathonDetailsPage: React.FC = () => {
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { num: 1, label: 'Student Info' },
-                  { num: 2, label: 'Track & Venue' },
-                  { num: 3, label: 'Team Setup' },
-                  { num: 4, label: 'Rules & Code' }
+                  { num: 2, label: 'Team Setup' },
+                  { num: 3, label: 'Track & Venue' },
+                  { num: 4, label: 'Rules & Summary' }
                 ].map((s) => {
                   const isCurrent = registrationStep === s.num;
                   const isCompleted = registrationStep > s.num;
@@ -1102,7 +1141,7 @@ export const HackathonDetailsPage: React.FC = () => {
             <div className="space-y-4">
               <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900">
                 <strong>Step 1: Institutional Student Verification</strong>
-                <p className="mt-0.5 text-blue-700">Official credentials verified from KIT student database.</p>
+                <p className="mt-0.5 text-blue-700">Official college credentials retrieved from your verified student profile.</p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1116,77 +1155,17 @@ export const HackathonDetailsPage: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <Input label="Email Address" value={currentUser?.studentData?.email || ''} disabled />
-                <Input label="Phone Number" value={currentUser?.studentData?.phone || ''} disabled />
+                <Input label="College Email" value={currentUser?.studentData?.email || ''} disabled />
+                <Input
+                  label="Contact Phone Number"
+                  value={studentPhone}
+                  onChange={(e) => setStudentPhone(e.target.value)}
+                  placeholder="e.g. 9876543210"
+                />
               </div>
 
               <div className="pt-4 flex justify-end">
                 <Button onClick={() => setRegistrationStep(2)} variant="primary">
-                  <span>Continue to Track & Logistics</span>
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Hackathon Confirmation & Track */}
-          {registrationStep === 2 && (
-            <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900">
-                <strong>{isExternal ? 'Step 2: Campus Participation Tracking Details' : 'Step 2: Confirm Hackathon Track & Logistics'}</strong>
-                <p className="mt-0.5 text-blue-700">
-                  {isExternal
-                    ? `Logging participation for ${hackathon.organizer}. HackHub tracks student activity for college monitoring and awards.`
-                    : 'Select your preferred problem statement track or decide on kickoff day.'}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Event:</span>
-                  <span className="font-bold text-slate-900">{hackathon.title}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Conducting Organizer:</span>
-                  <span className="font-semibold text-slate-800">{hackathon.organizer}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Mode & Venue:</span>
-                  <span className="font-semibold text-slate-800">{hackathon.mode.replace('_', ' ')} • {hackathon.venue || hackathon.location || 'Online'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Dates:</span>
-                  <span className="font-semibold text-slate-800">
-                    {hackathon.eventStart ? new Date(hackathon.eventStart).toLocaleDateString() : 'TBD'} - {hackathon.eventEnd ? new Date(hackathon.eventEnd).toLocaleDateString() : 'TBD'}
-                  </span>
-                </div>
-              </div>
-
-              {hackathon.problemStatements && hackathon.problemStatements.length > 0 && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    Preferred Track / Problem Statement (Optional)
-                  </label>
-                  <select
-                    value={selectedTrack}
-                    onChange={(e) => setSelectedTrack(e.target.value)}
-                    className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  >
-                    <option value="">General / Undecided (Select during hackathon kickoff)</option>
-                    {hackathon.problemStatements.map((ps, i) => (
-                      <option key={ps.id} value={ps.id}>
-                        Track {i + 1}: {ps.title} ({ps.domain})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="pt-4 flex justify-between">
-                <Button variant="outline" onClick={() => setRegistrationStep(1)}>
-                  Back
-                </Button>
-                <Button onClick={() => setRegistrationStep(3)} variant="primary">
                   <span>Continue to Team Setup</span>
                   <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>
@@ -1194,15 +1173,35 @@ export const HackathonDetailsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Step 3: Team Setup Choice with Inline Validation */}
-          {registrationStep === 3 && (
+          {/* Step 2: Team Setup Choice with Inline Validation */}
+          {registrationStep === 2 && (
             <div className="space-y-4">
               <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900">
-                <strong>Step 3: Team Formation</strong>
-                <p className="mt-0.5 text-blue-700">Form a team now, join an existing roster via code, or register individually and form later.</p>
+                <strong>Step 2: Team Formation</strong>
+                <p className="mt-0.5 text-blue-700">
+                  Form a team now, join an existing squad with an invite code, or register individually and form your team later.
+                  Allowed team size: {hackathon.minTeamSize || 1} to {hackathon.maxTeamSize || 4} members.
+                </p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTeamChoice('later');
+                    setTeamNameError('');
+                    setTeamCodeError('');
+                  }}
+                  className={`p-3.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
+                    teamChoice === 'later'
+                      ? 'border-blue-600 bg-blue-50/60 shadow-sm font-bold'
+                      : 'border-slate-200 bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <p className="font-bold text-slate-900 mb-0.5">Individual / Later</p>
+                  <p className="text-[11px] text-slate-500 font-normal">Solo or form from Team Hub.</p>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -1216,7 +1215,7 @@ export const HackathonDetailsPage: React.FC = () => {
                   }`}
                 >
                   <p className="font-bold text-slate-900 mb-0.5">Create Team</p>
-                  <p className="text-[11px] text-slate-500 font-normal">You will be designated lead.</p>
+                  <p className="text-[11px] text-slate-500 font-normal">Designated as Team Lead.</p>
                 </button>
 
                 <button
@@ -1234,27 +1233,10 @@ export const HackathonDetailsPage: React.FC = () => {
                   <p className="font-bold text-slate-900 mb-0.5">Join with Code</p>
                   <p className="text-[11px] text-slate-500 font-normal">Enter 6-char team code.</p>
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTeamChoice('later');
-                    setTeamNameError('');
-                    setTeamCodeError('');
-                  }}
-                  className={`p-3.5 rounded-xl border text-left text-xs transition-all cursor-pointer ${
-                    teamChoice === 'later'
-                      ? 'border-blue-600 bg-blue-50/60 shadow-sm font-bold'
-                      : 'border-slate-200 bg-white hover:bg-slate-50'
-                  }`}
-                >
-                  <p className="font-bold text-slate-900 mb-0.5">Form Later</p>
-                  <p className="text-[11px] text-slate-500 font-normal">Join from Team Hub later.</p>
-                </button>
               </div>
 
               {teamChoice === 'create' && (
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                   <Input
                     label="Team Name"
                     placeholder="e.g. CyberVanguard, NeuralForge"
@@ -1266,17 +1248,18 @@ export const HackathonDetailsPage: React.FC = () => {
                     error={teamNameError}
                     required
                   />
-                  <p className="text-[11px] text-slate-500 mt-1.5">
-                    A unique 6-character team invite code will be generated for your teammates.
-                  </p>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                    <span>You will receive an alphanumeric code to invite teammates.</span>
+                    <span className="font-medium text-slate-700">Team Size: {hackathon.minTeamSize || 1}–{hackathon.maxTeamSize || 4}</span>
+                  </div>
                 </div>
               )}
 
               {teamChoice === 'join' && (
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50">
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
                   <Input
                     label="Team Invite Code"
-                    placeholder="e.g. BYTE42"
+                    placeholder="e.g. TEAM-A1B2C"
                     value={teamCodeToJoin}
                     onChange={(e) => {
                       const val = e.target.value.toUpperCase();
@@ -1286,14 +1269,14 @@ export const HackathonDetailsPage: React.FC = () => {
                     error={teamCodeError}
                     required
                   />
-                  <p className="text-[11px] text-slate-500 mt-1.5">
+                  <p className="text-[11px] text-slate-500">
                     Ask your team leader for their alphanumeric invite code.
                   </p>
                 </div>
               )}
 
               <div className="pt-4 flex justify-between">
-                <Button variant="outline" onClick={() => setRegistrationStep(2)}>
+                <Button variant="outline" onClick={() => setRegistrationStep(1)}>
                   Back
                 </Button>
                 <Button
@@ -1303,13 +1286,83 @@ export const HackathonDetailsPage: React.FC = () => {
                       return;
                     }
                     if (teamChoice === 'join' && teamCodeToJoin.trim().length < 4) {
-                      setTeamCodeError('Please enter a valid 6-character team code.');
+                      setTeamCodeError('Please enter a valid team invite code.');
                       return;
                     }
-                    setRegistrationStep(4);
+                    setRegistrationStep(3);
                   }}
                   variant="primary"
                 >
+                  <span>Continue to Track & Venue</span>
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: Hackathon Confirmation & Track */}
+          {registrationStep === 3 && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900">
+                <strong>{isExternal ? 'Step 3: Campus Participation Tracking Details' : 'Step 3: Event Track & Venue Logistics'}</strong>
+                <p className="mt-0.5 text-blue-700">
+                  {isExternal
+                    ? `Logging participation for ${hackathon.organizer}. HackHub tracks student activity for college monitoring and awards.`
+                    : 'Review participation venue and select your preferred problem statement track.'}
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Event:</span>
+                  <span className="font-bold text-slate-900">{hackathon.title}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Conducting Organizer:</span>
+                  <span className="font-semibold text-slate-800">{hackathon.organizer}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Mode & Venue:</span>
+                  <span className="font-semibold text-slate-800">{hackathon.mode.replace('_', ' ')} • {hackathon.venue || hackathon.location || 'College Campus'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Dates:</span>
+                  <span className="font-semibold text-slate-800">
+                    {hackathon.eventStart ? new Date(hackathon.eventStart).toLocaleDateString() : 'TBD'} - {hackathon.eventEnd ? new Date(hackathon.eventEnd).toLocaleDateString() : 'TBD'}
+                  </span>
+                </div>
+              </div>
+
+              {hackathon.problemStatements && hackathon.problemStatements.length > 0 ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Preferred Track / Problem Statement (Optional)
+                  </label>
+                  <select
+                    value={selectedTrack}
+                    onChange={(e) => setSelectedTrack(e.target.value)}
+                    className="w-full text-xs rounded-xl border border-slate-300 bg-white py-2.5 px-3 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  >
+                    <option value="">General / Open Track (Finalize during hackathon kickoff)</option>
+                    {hackathon.problemStatements.map((ps, i) => (
+                      <option key={ps.id} value={ps.id}>
+                        Track {i + 1}: {ps.title} ({ps.domain})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-800 block mb-0.5">Open Innovation Track</span>
+                  <span>This challenge invites innovative solutions aligned with the main event theme. Specific problem statements will be highlighted during the opening ceremony.</span>
+                </div>
+              )}
+
+              <div className="pt-4 flex justify-between">
+                <Button variant="outline" onClick={() => setRegistrationStep(2)}>
+                  Back
+                </Button>
+                <Button onClick={() => setRegistrationStep(4)} variant="primary">
                   <span>Continue to Rules Acceptance</span>
                   <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>
@@ -1317,21 +1370,59 @@ export const HackathonDetailsPage: React.FC = () => {
             </div>
           )}
 
-          {/* Step 4: Rules & Explicit Acceptance */}
+          {/* Step 4: Rules, Registration Summary & Final Confirmation */}
           {registrationStep === 4 && (
             <div className="space-y-4">
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
                 <strong>Step 4: Academic Integrity & Official Rules Acceptance</strong>
-                <p className="mt-0.5 text-amber-700">You must explicitly accept the rules to finalize your registration.</p>
+                <p className="mt-0.5 text-amber-700">Please review your registration details and accept the institutional code of conduct.</p>
               </div>
 
-              <div className="max-h-52 overflow-y-auto p-4 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-600 space-y-2.5">
-                {(hackathon.rules || ['All participants must adhere to institutional codes of conduct and competition guidelines.']).map((rule, idx) => (
-                  <p key={idx}>• {rule}</p>
+              {/* Complete Rules Panel (Never Blank) */}
+              <div className="max-h-48 overflow-y-auto p-4 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-700 space-y-2">
+                <p className="font-bold text-slate-900 mb-1">Hackathon Code of Conduct & Rules:</p>
+                {displayRules.map((rule, idx) => (
+                  <p key={idx} className="flex items-start gap-2">
+                    <span className="font-bold text-blue-700 shrink-0">•</span>
+                    <span>{rule}</span>
+                  </p>
                 ))}
               </div>
 
-              <div className="p-4 rounded-xl bg-slate-100 border border-slate-200">
+              {/* Concise Registration Summary Review Card */}
+              <div className="p-3.5 rounded-xl border border-slate-200 bg-white space-y-2 text-xs">
+                <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Registration Summary</p>
+                <div className="grid grid-cols-2 gap-2 text-slate-700">
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">Student:</span>
+                    <span className="font-bold text-slate-900">{currentUser?.studentData?.name} ({currentUser?.studentData?.registerNumber})</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">Department:</span>
+                    <span className="font-semibold text-slate-800">{currentUser?.studentData?.department} • {currentUser?.studentData?.year}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">Participation Mode:</span>
+                    <span className="font-semibold text-slate-800">
+                      {teamChoice === 'create' && newTeamName
+                        ? `Creating Team "${newTeamName}" (Lead)`
+                        : teamChoice === 'join' && teamCodeToJoin
+                        ? `Joining Team (Code: ${teamCodeToJoin})`
+                        : 'Individual / Form Squad Later'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px]">Selected Track:</span>
+                    <span className="font-semibold text-slate-800 truncate block">
+                      {selectedTrack
+                        ? hackathon.problemStatements?.find((ps) => ps.id === selectedTrack)?.title || 'Selected Track'
+                        : 'General / Open Track'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-100 border border-slate-200">
                 <label className="flex items-start gap-3 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1340,7 +1431,7 @@ export const HackathonDetailsPage: React.FC = () => {
                     className="mt-0.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
                   />
                   <span className="text-xs font-semibold text-slate-900 leading-snug">
-                    I have read and agree to the Hackathon Rules and College Code of Conduct.
+                    I have read, understood, and agree to adhere to the Hackathon Rules and College Code of Conduct.
                   </span>
                 </label>
               </div>
@@ -1352,7 +1443,7 @@ export const HackathonDetailsPage: React.FC = () => {
                 <Button
                   onClick={handleCompleteRegistration}
                   variant="primary"
-                  disabled={!acceptedRules}
+                  disabled={!acceptedRules || isSubmitting}
                   isLoading={isSubmitting}
                 >
                   Complete Registration

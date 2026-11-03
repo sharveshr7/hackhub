@@ -55,12 +55,10 @@ export const StudentDashboardPage: React.FC = () => {
   const myRegistrations = registrations.filter((r) => r.studentId === student?.uid);
   const myCertificates = certificates.filter((c) => c.studentId === student?.uid || c.registerNumber === student?.registerNumber);
 
-  // Active hackathon: find one the student is registered for, or live/open hackathon
+  // Active registered hackathon: ONLY hackathons the student actually registered for
   const activeHackathon =
     hackathons.find((h) => myRegistrations.some((r) => r.hackathonId === h.id && (h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN' || h.status === 'PUBLISHED'))) ||
     hackathons.find((h) => myRegistrations.some((r) => r.hackathonId === h.id)) ||
-    hackathons.find((h) => h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN' || h.status === 'PUBLISHED') ||
-    hackathons.find((h) => h.status !== 'DRAFT') ||
     null;
 
   // Active student registration
@@ -92,6 +90,7 @@ export const StudentDashboardPage: React.FC = () => {
   const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
   const [attendanceCode, setAttendanceCode] = useState('');
   const [isVerifyingAttendance, setIsVerifyingAttendance] = useState(false);
+  const [deadlinesTab, setDeadlinesTab] = useState<'REGISTERED' | 'PUBLIC'>('REGISTERED');
 
   const handleMarkAttendance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,8 +171,8 @@ export const StudentDashboardPage: React.FC = () => {
     });
   }, [myRegistrations, hackathons, teams, submissions, student]);
 
-  // Section 20: Upcoming Deadlines monitoring system
-  const trackedDeadlines = React.useMemo(() => {
+  // Section 20: Deadlines separation - Registered Events vs Public Opportunities
+  const myRegisteredDeadlines = React.useMemo(() => {
     const list: Array<{
       id: string;
       title: string;
@@ -185,7 +184,9 @@ export const StudentDashboardPage: React.FC = () => {
       hackathonId: string;
     }> = [];
 
-    hackathons.forEach((h) => {
+    const registeredHackathons = hackathons.filter((h) => myRegistrations.some((r) => r.hackathonId === h.id));
+
+    registeredHackathons.forEach((h) => {
       const addDeadline = (type: string, dateString?: string) => {
         if (!dateString) return;
         const diff = new Date(dateString).getTime() - Date.now();
@@ -217,18 +218,64 @@ export const StudentDashboardPage: React.FC = () => {
         });
       };
 
-      if (h.registrationDeadline) addDeadline('Registration Deadline', h.registrationDeadline);
-      if (h.eventStart) {
-        const teamDeadline = new Date(new Date(h.eventStart).getTime() - 12 * 60 * 60 * 1000).toISOString();
-        addDeadline('Team Formation Deadline', teamDeadline);
-        addDeadline('Event Date', h.eventStart);
-      }
-      if (h.submissionDeadline) addDeadline('Submission Deadline', h.submissionDeadline);
-      if (h.eventEnd) addDeadline('Result Announcement', h.eventEnd);
+      if (h.submissionDeadline) addDeadline('Project Submission Deadline', h.submissionDeadline);
+      if (h.eventStart) addDeadline('Event Kickoff Date', h.eventStart);
+      if (h.eventEnd) addDeadline('Final Results & Jury Review', h.eventEnd);
     });
 
-    return list.sort((a, b) => new Date(a.dateStr).getTime() - new Date(b.dateStr).getTime()).slice(0, 5);
-  }, [hackathons]);
+    return list.sort((a, b) => new Date(a.dateStr).getTime() - new Date(b.dateStr).getTime());
+  }, [hackathons, myRegistrations]);
+
+  const publicOpportunities = React.useMemo(() => {
+    const list: Array<{
+      id: string;
+      title: string;
+      hackathonTitle: string;
+      dateStr: string;
+      formattedDate: string;
+      urgencyLabel: string;
+      isUrgent: boolean;
+      hackathonId: string;
+    }> = [];
+
+    const unjoinedHackathons = hackathons.filter(
+      (h) => !myRegistrations.some((r) => r.hackathonId === h.id) && (h.status === 'REGISTRATION_OPEN' || h.status === 'PUBLISHED' || h.status === 'LIVE')
+    );
+
+    unjoinedHackathons.forEach((h) => {
+      if (h.registrationDeadline) {
+        const diff = new Date(h.registrationDeadline).getTime() - Date.now();
+        if (diff < -24 * 60 * 60 * 1000) return;
+        let urgencyLabel = '';
+        let isUrgent = false;
+        if (diff < 0) {
+          urgencyLabel = 'Registration Closed';
+        } else if (diff < 24 * 60 * 60 * 1000) {
+          urgencyLabel = 'Closing today';
+          isUrgent = true;
+        } else if (diff < 48 * 60 * 60 * 1000) {
+          urgencyLabel = 'Closing tomorrow';
+          isUrgent = true;
+        } else {
+          const days = Math.ceil(diff / (24 * 60 * 60 * 1000));
+          urgencyLabel = `${days} days left to register`;
+        }
+
+        list.push({
+          id: `${h.id}-reg-deadline`,
+          title: 'Registration Closing',
+          hackathonTitle: h.title,
+          dateStr: h.registrationDeadline,
+          formattedDate: new Date(h.registrationDeadline).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          urgencyLabel,
+          isUrgent,
+          hackathonId: h.id
+        });
+      }
+    });
+
+    return list.sort((a, b) => new Date(a.dateStr).getTime() - new Date(b.dateStr).getTime()).slice(0, 6);
+  }, [hackathons, myRegistrations]);
 
   // Section 13 Top Cards Data
   const registeredHackathonsCount = myRegistrations.length;
@@ -236,7 +283,8 @@ export const StudentDashboardPage: React.FC = () => {
     (h) => myRegistrations.some((r) => r.hackathonId === h.id) &&
            (h.status === 'LIVE' || h.status === 'REGISTRATION_OPEN' || h.status === 'PUBLISHED')
   ).length;
-  const nearestDeadlineLabel = trackedDeadlines[0]?.urgencyLabel || 'No deadlines';
+  const nearestDeadlineLabel = myRegisteredDeadlines[0]?.urgencyLabel || (myRegistrations.length === 0 ? 'No deadlines' : 'All clear');
+  const nearestDeadlineSub = myRegisteredDeadlines[0] ? myRegisteredDeadlines[0].title : (myRegistrations.length === 0 ? 'Register to track' : 'All tasks delivered');
   const myTeamsCount = teams.filter((t) => t.members?.some((m) => m.studentId === student?.uid)).length;
   const pendingSubmissionsCount = studentParticipations.filter(
     (p) => p.submissionStatus === 'Pending' || p.submissionStatus === 'Draft'
@@ -245,7 +293,9 @@ export const StudentDashboardPage: React.FC = () => {
     (s) => s.submittedBy === student?.uid && (s.rank || s.status === 'SHORTLISTED' || s.status === 'EVALUATED')
   ).length;
 
-  const recentAnnouncements = announcements.slice(0, 3);
+  const recentAnnouncements = announcements
+    .filter((a) => !a.department || a.department === 'ALL' || a.department === student?.department)
+    .slice(0, 3);
 
   return (
     <div className="space-y-8">
@@ -283,6 +333,41 @@ export const StudentDashboardPage: React.FC = () => {
           </Link>
         </div>
       </div>
+
+      {/* SECTION 1.5: EXPLORATION BANNER (When student has 0 registered hackathons) */}
+      {myRegistrations.length === 0 && (
+        <div className="bg-gradient-to-r from-navy-950 via-navy-900 to-blue-950 rounded-2xl border border-slate-200/80 p-6 sm:p-7 text-white relative overflow-hidden shadow-elevated">
+          <div className="relative z-10 max-w-2xl space-y-3">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+              <Sparkles className="w-3.5 h-3.5" />
+              Open Collegiate Challenges
+            </span>
+            <h2 className="text-xl sm:text-2xl font-bold font-display text-white">
+              Explore Available Hackathons
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              You haven't registered for any collegiate hackathons yet. Discover ongoing and upcoming hackathons to participate, collaborate in teams, and track your milestone progress.
+            </p>
+            <div className="pt-1 flex flex-wrap items-center gap-3">
+              <Link
+                to="/student/hackathons"
+                className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-navy-950 font-bold text-xs rounded-xl shadow-sm transition-all inline-flex items-center gap-1.5"
+              >
+                <Compass className="w-4 h-4" />
+                <span>Explore Hackathons</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link
+                to="/student/team"
+                className="px-4 py-2 bg-white/10 hover:bg-white/15 text-white font-semibold text-xs rounded-xl border border-white/20 transition-all inline-flex items-center gap-1.5"
+              >
+                <Users className="w-4 h-4" />
+                <span>Team Hub</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SECTION 13: 6 TOP SUMMARY CARDS (Real Firebase Data) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
@@ -355,7 +440,7 @@ export const StudentDashboardPage: React.FC = () => {
               {nearestDeadlineLabel}
             </div>
             <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-              {trackedDeadlines[0] ? trackedDeadlines[0].title : 'All clear'}
+              {nearestDeadlineSub}
             </p>
           </div>
           <a
@@ -607,55 +692,132 @@ export const StudentDashboardPage: React.FC = () => {
 
       {/* SECTION 20: UPCOMING DEADLINES MONITORING & CAMPUS NOTICE BOARD */}
       <div id="deadlines-section" className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column (lg:col-span-7): UPCOMING DEADLINES WITH REAL TIMESTAMPS */}
+        {/* Left Column (lg:col-span-7): UPCOMING DEADLINES WITH SEPARATION OF REGISTERED VS PUBLIC */}
         <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-600" />
               <h2 className="text-base font-bold text-navy-950 font-display">
-                Upcoming Deadlines
+                Deadlines & Milestones
               </h2>
             </div>
-            <span className="text-xs text-slate-400">Real-Time Firestore Sync</span>
+            {/* Filter Tabs */}
+            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setDeadlinesTab('REGISTERED')}
+                className={`px-3 py-1 rounded-md font-semibold transition-all ${
+                  deadlinesTab === 'REGISTERED'
+                    ? 'bg-white text-navy-950 shadow-xs'
+                    : 'text-slate-600 hover:text-navy-900'
+                }`}
+              >
+                My Events ({myRegisteredDeadlines.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeadlinesTab('PUBLIC')}
+                className={`px-3 py-1 rounded-md font-semibold transition-all ${
+                  deadlinesTab === 'PUBLIC'
+                    ? 'bg-white text-navy-950 shadow-xs'
+                    : 'text-slate-600 hover:text-navy-900'
+                }`}
+              >
+                Public Opportunities ({publicOpportunities.length})
+              </button>
+            </div>
           </div>
 
           <div className="space-y-3">
-            {trackedDeadlines.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400 bg-white rounded-xl border border-slate-200/80 shadow-subtle">
-                No upcoming deadlines tracked at this time.
-              </div>
-            ) : (
-              trackedDeadlines.map((dl) => (
-                <div
-                  key={dl.id}
-                  className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-subtle flex items-center justify-between gap-4"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-bold text-navy-950">{dl.title}</span>
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                          dl.urgencyLabel === 'Due today'
-                            ? 'bg-rose-50 text-rose-700 border-rose-200'
-                            : dl.urgencyLabel === 'Due tomorrow'
-                            ? 'bg-amber-50 text-amber-700 border-amber-200'
-                            : 'bg-blue-50 text-blue-700 border-blue-200'
-                        }`}
-                      >
-                        {dl.urgencyLabel}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 truncate">{dl.hackathonTitle}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{dl.formattedDate}</p>
-                  </div>
-                  <Link
-                    to={`/student/hackathons/${dl.hackathonId}`}
-                    className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors shrink-0"
+            {deadlinesTab === 'REGISTERED' ? (
+              myRegisteredDeadlines.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200/80 shadow-subtle flex flex-col items-center justify-center">
+                  <Clock className="w-8 h-8 text-slate-300 mb-2" />
+                  <p className="font-semibold text-slate-700">No active deadlines</p>
+                  <p className="text-[11px] text-slate-400 mt-1 max-w-sm">
+                    You don't have pending project submissions or milestone deadlines. Register for a collegiate hackathon to track deadlines.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setDeadlinesTab('PUBLIC')}
+                    className="mt-3 text-xs font-semibold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1"
                   >
-                    View
-                  </Link>
+                    <span>Browse Public Opportunities</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              ))
+              ) : (
+                myRegisteredDeadlines.map((dl) => (
+                  <div
+                    key={dl.id}
+                    className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-subtle flex items-center justify-between gap-4 hover:border-slate-300 transition-all"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold text-navy-950">{dl.title}</span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            dl.urgencyLabel === 'Due today'
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : dl.urgencyLabel === 'Due tomorrow'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}
+                        >
+                          {dl.urgencyLabel}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 truncate">{dl.hackathonTitle}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{dl.formattedDate}</p>
+                    </div>
+                    <Link
+                      to={`/student/hackathons/${dl.hackathonId}`}
+                      className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors shrink-0"
+                    >
+                      View
+                    </Link>
+                  </div>
+                ))
+              )
+            ) : (
+              publicOpportunities.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500 bg-white rounded-xl border border-slate-200/80 shadow-subtle">
+                  No public opportunities currently accepting registrations.
+                </div>
+              ) : (
+                publicOpportunities.map((dl) => (
+                  <div
+                    key={dl.id}
+                    className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-subtle flex items-center justify-between gap-4 hover:border-slate-300 transition-all"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold text-navy-950">{dl.title}</span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            dl.urgencyLabel.includes('today')
+                              ? 'bg-rose-50 text-rose-700 border-rose-200'
+                              : dl.urgencyLabel.includes('tomorrow')
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          }`}
+                        >
+                          {dl.urgencyLabel}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 truncate">{dl.hackathonTitle}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{dl.formattedDate}</p>
+                    </div>
+                    <Link
+                      to={`/hackathons/${dl.hackathonId}`}
+                      className="px-3 py-1.5 rounded-lg bg-navy-900 text-white hover:bg-navy-800 text-xs font-semibold transition-colors shrink-0 inline-flex items-center gap-1"
+                    >
+                      <span>Explore</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                ))
+              )
             )}
           </div>
         </div>
@@ -677,8 +839,10 @@ export const StudentDashboardPage: React.FC = () => {
 
             <div className="space-y-3">
               {recentAnnouncements.length === 0 ? (
-                <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-lg border border-slate-100">
-                  No announcements published yet.
+                <div className="p-8 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-slate-100 flex flex-col items-center justify-center">
+                  <Bell className="w-8 h-8 text-slate-300 mb-2" />
+                  <p className="font-semibold text-slate-600">No announcements at this time</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Official department and campus notices will appear here.</p>
                 </div>
               ) : (
                 recentAnnouncements.map((item) => (

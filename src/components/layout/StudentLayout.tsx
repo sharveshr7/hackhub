@@ -73,7 +73,7 @@ export const StudentLayout: React.FC = () => {
   const activeReg = registrations.find(
     (r) => r.studentId === student?.uid && (r.status === 'CONFIRMED' || r.status === 'ATTENDED' || r.status === 'SUBMITTED')
   );
-  const activeHackathon = activeReg ? hackathons.find((h) => h.id === activeReg.hackathonId) : hackathons[0];
+  const activeHackathon = activeReg ? hackathons.find((h) => h.id === activeReg.hackathonId) : undefined;
 
   const navLinks = [
     { to: '/student', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -252,6 +252,14 @@ export const StudentLayout: React.FC = () => {
                       <Award className="w-3.5 h-3.5 text-slate-400" />
                       <span>Earned Certificates</span>
                     </Link>
+                    <a
+                      href="mailto:hackathons@kitcbe.com?subject=HackHub%20Student%20Support%20Inquiry"
+                      onClick={() => setProfileDropdownOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium"
+                    >
+                      <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Help & Support</span>
+                    </a>
                   </div>
 
                   <div className="pt-1 border-t border-slate-100">

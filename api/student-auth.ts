@@ -15,6 +15,27 @@
 
 import fs from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import {
+  getAdminInstances,
+  setMockAdminInstances,
+  resetMockAdminInstances,
+  verifyServerRequest,
+  getExpectedProjectId,
+  getAdminInitStatus,
+  normalizePrivateKey,
+  parseServiceAccountPayload
+} from './_lib/firebaseAdmin.ts';
+
+export {
+  getAdminInstances,
+  setMockAdminInstances,
+  resetMockAdminInstances,
+  verifyServerRequest,
+  getExpectedProjectId,
+  getAdminInitStatus,
+  normalizePrivateKey,
+  parseServiceAccountPayload
+};
 
 interface RateLimitEntry {
   attempts: number;
@@ -74,25 +95,7 @@ export const FIREBASE_API_KEY =
   process.env.VITE_FIREBASE_API_KEY ||
   getDotEnvValue('VITE_FIREBASE_API_KEY') ||
   'AIzaSyDola5Yv45cq2h4OgmBPrFar5dUcRUh_as';
-const FIREBASE_PROJECT_ID =
-  process.env.FIREBASE_PROJECT_ID ||
-  process.env.VITE_FIREBASE_PROJECT_ID ||
-  getDotEnvValue('VITE_FIREBASE_PROJECT_ID') ||
-  'foceye-2546c';
 
-let mockAdminInstances: any = null;
-
-/**
- * Configure mock Admin SDK instances for unit testing
- */
-export function setMockAdminInstances(instances: any) {
-  mockAdminInstances = instances;
-}
-
-export function resetMockAdminInstances() {
-  mockAdminInstances = null;
-  cachedAdminInstances = null;
-}
 
 /**
  * Reset rate limit entries (useful for test suites)
@@ -122,115 +125,7 @@ export interface AuthDiagnostics {
   statusMessage: string;
 }
 
-/**
- * Returns the normalized target HackHub Firebase Project ID
- */
-export function getExpectedProjectId(): string {
-  return (
-    process.env.FIREBASE_PROJECT_ID ||
-    process.env.FIREBASE_ADMIN_PROJECT_ID ||
-    process.env.VITE_FIREBASE_PROJECT_ID ||
-    FIREBASE_PROJECT_ID
-  ).trim().replace(/^["']|["']$/g, '');
-}
 
-/**
- * Safely parses and normalizes service account payloads across various Vercel environment formats:
- * - Direct JSON string
- * - Escaped backslash JSON
- * - Double-stringified JSON
- * - Base64-encoded JSON
- * - Outer quoted strings
- */
-export function parseServiceAccountPayload(rawInput: string): {
-  serviceAccount: any;
-  format: 'raw_json' | 'escaped_json' | 'base64_json' | 'double_stringified_json';
-} {
-  let raw = (rawInput || '').trim();
-
-  // Strip markdown code fences if copied from documentation
-  if (raw.startsWith('```') && raw.endsWith('```')) {
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  }
-
-  // Strip leading/trailing surrounding quotes if wrapped
-  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
-    raw = raw.slice(1, -1).trim();
-  }
-
-  // Strip UTF-8 BOM if present
-  if (raw.charCodeAt(0) === 0xFEFF) {
-    raw = raw.slice(1).trim();
-  }
-
-  // Handle escaped quotes from shell or Vercel CLI (e.g. {\"type\": ...})
-  if (raw.includes('\\"')) {
-    try {
-      const unescaped = raw.replace(/\\"/g, '"');
-      if (unescaped.startsWith('{')) {
-        const parsed = JSON.parse(unescaped);
-        return { serviceAccount: parsed, format: 'escaped_json' };
-      }
-    } catch {
-      // Continue to next parsing strategy
-    }
-  }
-
-  // Direct JSON parse
-  if (raw.startsWith('{')) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (typeof parsed === 'string' && parsed.trim().startsWith('{')) {
-        return { serviceAccount: JSON.parse(parsed.trim()), format: 'double_stringified_json' };
-      }
-      return { serviceAccount: parsed, format: 'raw_json' };
-    } catch (err: any) {
-      throw new Error(`Invalid JSON syntax in service account: ${err.message}`);
-    }
-  }
-
-  // Base64 decode attempt (stripping any accidental whitespace or newlines)
-  try {
-    const cleanBase64 = raw.replace(/\s+/g, '');
-    let decoded = Buffer.from(cleanBase64, 'base64').toString('utf8').trim();
-    if (decoded.charCodeAt(0) === 0xFEFF) {
-      decoded = decoded.slice(1).trim();
-    }
-    if (decoded.startsWith('```')) {
-      decoded = decoded.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-    }
-    if ((decoded.startsWith('"') && decoded.endsWith('"')) || (decoded.startsWith("'") && decoded.endsWith("'"))) {
-      decoded = decoded.slice(1, -1).trim();
-    }
-    if (decoded.startsWith('{')) {
-      const parsed = JSON.parse(decoded);
-      return { serviceAccount: parsed, format: 'base64_json' };
-    }
-  } catch {
-    // Not valid base64
-  }
-
-  throw new Error('Service account string is neither valid JSON nor base64-encoded JSON.');
-}
-
-/**
- * Normalizes PEM private keys from environment variables:
- * - Converts escaped \n to real newlines
- * - Strips all Windows \r\n and carriage returns
- * - Strips accidental surrounding quotes
- */
-export function normalizePrivateKey(rawKey: string): string {
-  let key = (rawKey || '').trim();
-  if ((key.startsWith('"') && key.endsWith('"')) || (key.startsWith("'") && key.endsWith("'"))) {
-    key = key.slice(1, -1).trim();
-  }
-  return key
-    .replace(/\\r\\n/g, '\n')
-    .replace(/\\r/g, '\n')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\\n/g, '\n');
-}
 
 /**
  * Generates safe diagnostic report without exposing secrets or credentials
@@ -272,7 +167,7 @@ export async function getAuthDiagnostics(): Promise<AuthDiagnostics> {
 
     try {
       const parsed = parseServiceAccountPayload(rawSA);
-      credentialFormat = parsed.format;
+      credentialFormat = parsed.format as AuthDiagnostics['credentialFormat'];
       credentialProjectId = parsed.serviceAccount.project_id || parsed.serviceAccount.projectId || null;
       clientEmailConfigured = typeof parsed.serviceAccount.client_email === 'string';
       const pk = typeof parsed.serviceAccount.private_key === 'string' ? parsed.serviceAccount.private_key : '';
@@ -327,345 +222,6 @@ export async function getAuthDiagnostics(): Promise<AuthDiagnostics> {
     privateKeyFormatValid,
     statusMessage
   };
-}
-
-let cachedAdminInstances: any = null;
-let lastInitError: string | null = null;
-
-/**
- * Initialize and retrieve Firebase Admin instances using server credentials
- */
-export async function getAdminInstances() {
-  if (mockAdminInstances) {
-    return mockAdminInstances;
-  }
-
-  if (process.env.DISABLE_LOCAL_CLI_AUTH === 'true') {
-    cachedAdminInstances = null;
-  }
-
-  if (cachedAdminInstances) {
-    return cachedAdminInstances;
-  }
-
-  let currentStep = 'start';
-  try {
-    currentStep = 'import_firebase_admin';
-    const { getApps, initializeApp, cert } = await import('firebase-admin/app');
-    const { getFirestore } = await import('firebase-admin/firestore');
-    let getAuthFn: any = null;
-    try {
-      const authModule = await import('firebase-admin/auth');
-      getAuthFn = authModule.getAuth;
-    } catch {
-      // Optional for Firestore lookups
-    }
-
-    currentStep = 'check_existing_apps';
-    const expectedProjectId = getExpectedProjectId();
-
-    const existingApps = getApps();
-    const adminApp = existingApps.find(a => a.name === 'HackHubAdmin') || null;
-
-    if (adminApp) {
-      if (cachedAdminInstances) {
-        return cachedAdminInstances;
-      }
-      try {
-        const db = getFirestore(adminApp);
-        cachedAdminInstances = {
-          adminApp,
-          adminDb: db,
-          adminAuth: getAuthFn ? getAuthFn(adminApp) : null
-        };
-        return cachedAdminInstances;
-      } catch {
-        // Fall back to subsequent initializers
-      }
-    }
-
-    // 1. Full JSON service account string or base64 encoded across all recognized env names
-    const serviceAccountRaw =
-      process.env.FIREBASE_SERVICE_ACCOUNT ||
-      process.env.FIREBASE_SERVICE_ACCOUNT_KEY ||
-      process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
-      process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT ||
-      process.env.FIREBASE_ADMIN_KEY ||
-      process.env.SERVICE_ACCOUNT_KEY ||
-      process.env.FIREBASE_CREDENTIALS ||
-      process.env.GOOGLE_SERVICE_ACCOUNT;
-
-    if (serviceAccountRaw) {
-      currentStep = 'parse_service_account';
-      console.log(`[StudentAuth Diagnostics] Detected credentials in environment variables (raw length: ${serviceAccountRaw.length}).`);
-      const { serviceAccount, format } = parseServiceAccountPayload(serviceAccountRaw);
-
-      // Validate that credentials belong to the intended HackHub Firebase project
-      currentStep = 'validate_project_id';
-      const credProjectId = (serviceAccount.project_id || serviceAccount.projectId || '').trim();
-      if (expectedProjectId && credProjectId && credProjectId.toLowerCase() !== expectedProjectId.toLowerCase()) {
-        const mismatchMsg = `Credential project_id "${credProjectId}" does not match target HackHub project "${expectedProjectId}".`;
-        lastInitError = `[validate_project_id] ${mismatchMsg}`;
-        console.warn(`[StudentAuth Diagnostics] ${mismatchMsg}`);
-        return null;
-      }
-
-      // Handle private-key newline formatting correctly
-      currentStep = 'normalize_key';
-      if (typeof serviceAccount.private_key === 'string') {
-        serviceAccount.private_key = normalizePrivateKey(serviceAccount.private_key);
-      }
-
-      console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using ${format} service account for project: ${expectedProjectId}`);
-
-      currentStep = 'cert_and_initialize_app';
-      const credential = cert(serviceAccount);
-      const app = initializeApp({
-        credential,
-        projectId: credProjectId || expectedProjectId
-      }, 'HackHubAdmin');
-
-      console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
-      lastInitError = null;
-      cachedAdminInstances = {
-        adminApp: app,
-        adminDb: getFirestore(app),
-        adminAuth: getAuthFn ? getAuthFn(app) : null
-      };
-      return cachedAdminInstances;
-    } else {
-      lastInitError = '[env_check] No credentials detected';
-      console.log('[StudentAuth Diagnostics] No service account credentials detected in environment variables (credentialSource=NONE).');
-    }
-
-    // 2. Discrete environment variables
-    const clientEmail =
-      process.env.FIREBASE_CLIENT_EMAIL ||
-      process.env.FIREBASE_ADMIN_CLIENT_EMAIL ||
-      process.env.CLIENT_EMAIL;
-
-    const privateKeyRaw =
-      process.env.FIREBASE_PRIVATE_KEY ||
-      process.env.FIREBASE_ADMIN_PRIVATE_KEY ||
-      process.env.PRIVATE_KEY;
-
-    if (clientEmail && privateKeyRaw) {
-      const discreteProjectId = (process.env.FIREBASE_PROJECT_ID || process.env.FIREBASE_ADMIN_PROJECT_ID || '').trim();
-      if (discreteProjectId && discreteProjectId !== expectedProjectId) {
-        console.warn(`[StudentAuth Diagnostics] Discrete project_id "${discreteProjectId}" does not match target HackHub project "${expectedProjectId}".`);
-        return null;
-      }
-
-      const privateKey = normalizePrivateKey(privateKeyRaw);
-      console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using discrete credentials for project: ${expectedProjectId}`);
-
-      const app = initializeApp({
-        credential: cert({
-          projectId: expectedProjectId,
-          clientEmail: clientEmail.trim().replace(/^["']|["']$/g, ''),
-          privateKey
-        }),
-        projectId: expectedProjectId
-      }, 'HackHubAdmin');
-
-      console.log(`[StudentAuth Diagnostics] Firebase Admin SDK successfully initialized for project: ${expectedProjectId}`);
-      return {
-        adminApp: app,
-        adminDb: getFirestore(app),
-        adminAuth: getAuthFn ? getAuthFn(app) : null
-      };
-    }
-
-    // 3. Application Default Credentials (GCP / file path)
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      const gCred = process.env.GOOGLE_APPLICATION_CREDENTIALS.trim();
-      // If user pasted raw JSON or base64 into GOOGLE_APPLICATION_CREDENTIALS
-      if (gCred.startsWith('{') || gCred.startsWith('"') || (!gCred.includes('/') && !gCred.includes('\\') && gCred.length > 100)) {
-        try {
-          const { serviceAccount, format } = parseServiceAccountPayload(gCred);
-          console.log(`[StudentAuth Diagnostics] Initializing Admin SDK using ${format} payload from GOOGLE_APPLICATION_CREDENTIALS for project: ${expectedProjectId}`);
-          if (typeof serviceAccount.private_key === 'string') {
-            serviceAccount.private_key = normalizePrivateKey(serviceAccount.private_key);
-          }
-          const app = initializeApp({
-            credential: cert(serviceAccount),
-            projectId: serviceAccount.project_id || expectedProjectId
-          }, 'HackHubAdmin');
-          return {
-            adminApp: app,
-            adminDb: getFirestore(app),
-            adminAuth: getAuthFn ? getAuthFn(app) : null
-          };
-        } catch {
-          // Fall back to default initialization
-        }
-      }
-
-      const app = initializeApp({ projectId: expectedProjectId }, 'HackHubAdmin');
-      return {
-        adminApp: app,
-        adminDb: getFirestore(app),
-        adminAuth: getAuthFn ? getAuthFn(app) : null
-      };
-    }
-
-    // 4. Local Firebase CLI credentials fallback (development & CLI runtimes)
-    if (process.env.DISABLE_LOCAL_CLI_AUTH !== 'true') {
-      try {
-        const os = await import('node:os');
-        const path = await import('node:path');
-        const homeDir = os.homedir();
-        const configstorePath = path.join(homeDir, '.config', 'configstore', 'firebase-tools.json');
-      if (fs.existsSync(configstorePath)) {
-        const config = JSON.parse(fs.readFileSync(configstorePath, 'utf8'));
-        const refreshToken = config.tokens?.refresh_token;
-        if (refreshToken) {
-          const clientId = '563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com';
-          const clientSecret = 'j9iVZfS8kkCEFUPaAeJV0sAi';
-          let accessToken = config.tokens?.access_token;
-          const expiresAt = config.tokens?.expires_at || 0;
-          if (!accessToken || expiresAt < Date.now() + 60000) {
-            const params = new URLSearchParams({
-              client_id: clientId,
-              client_secret: clientSecret,
-              refresh_token: refreshToken,
-              grant_type: 'refresh_token'
-            });
-            const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-              body: params.toString()
-            });
-            if (tokenRes.ok) {
-              const tokenData = (await tokenRes.json()) as any;
-              accessToken = tokenData.access_token;
-            }
-          }
-          if (accessToken) {
-            const { OAuth2Client } = await import('google-auth-library');
-            const { Firestore } = await import('@google-cloud/firestore');
-            const authClient = new OAuth2Client();
-            authClient.setCredentials({ access_token: accessToken });
-            const directDb = new Firestore({ projectId: expectedProjectId, authClient });
-            const customCredential = {
-              getAccessToken: async () => ({ access_token: accessToken, expires_in: 3600 })
-            };
-            const app = initializeApp({
-              credential: customCredential,
-              projectId: expectedProjectId
-            }, 'HackHubAdmin');
-            lastInitError = null;
-            cachedAdminInstances = {
-              adminApp: app,
-              adminDb: directDb as any,
-              adminAuth: getAuthFn ? getAuthFn(app) : null
-            };
-            return cachedAdminInstances;
-          }
-        }
-      }
-    } catch {
-      // Continue to final error
-    }
-  }
-
-  } catch (err: any) {
-    lastInitError = `[${currentStep}] ${err?.message || String(err)}`;
-    console.warn('[StudentAuth Diagnostics] Admin SDK initialization note:', lastInitError);
-    return null;
-  }
-}
-
-/**
- * Verify Firebase ID Token and enforce server-side role and account checks
- */
-export async function verifyServerRequest(
-  authHeader: string | undefined,
-  requiredRole?: 'STUDENT' | 'STAFF' | 'ADMIN'
-): Promise<{
-  valid: boolean;
-  uid?: string;
-  email?: string;
-  role?: string;
-  department?: string;
-  authorizedYears?: string[];
-  isPlatformAdministrator?: boolean;
-  isDepartmentApprover?: boolean;
-  name?: string;
-  error?: string;
-  status: number;
-}> {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return {
-      valid: false,
-      status: 401,
-      error: 'Unauthorized: Missing or invalid Bearer authentication header.'
-    };
-  }
-
-  const idToken = authHeader.slice('Bearer '.length).trim();
-  const adminInstances = await getAdminInstances();
-  if (!adminInstances?.adminAuth || !adminInstances.adminDb) {
-    return { valid: false, status: 503, error: 'Server authorization service unavailable: Firebase Admin SDK credentials required.' };
-  }
-  try {
-    const decodedToken = await adminInstances.adminAuth.verifyIdToken(idToken, true);
-    const uid = decodedToken.uid;
-    const email = decodedToken.email;
-    const adminDoc = await adminInstances.adminDb.collection('admins').doc(uid).get();
-    if (adminDoc.exists) {
-      const adminData = adminDoc.data() as any;
-      const storedRole = String(adminData.role || '').toUpperCase();
-      if (adminData.isActive === false || adminData.accountStatus === 'deactivated' || !['ADMIN', 'FACULTY'].includes(storedRole)) {
-        return { valid: false, status: 403, error: 'Forbidden: Staff account is deactivated or unauthorized.' };
-      }
-      const role = adminData.isPlatformAdmin === true ? 'ADMIN' : 'FACULTY';
-      if (requiredRole === 'STUDENT' || (requiredRole === 'ADMIN' && role !== 'ADMIN')) {
-        return { valid: false, status: 403, error: 'Forbidden: This operation is not available to this staff account.' };
-      }
-      return {
-        valid: true,
-        status: 200,
-        uid,
-        email,
-        name: adminData.name || decodedToken.name || '',
-        role,
-        department: adminData.department,
-        authorizedYears: Array.isArray(adminData.authorizedYears) ? adminData.authorizedYears : [],
-        isPlatformAdministrator: adminData.isPlatformAdmin === true,
-        isDepartmentApprover: adminData.isDepartmentApprover === true
-      };
-    }
-
-    const studentDoc = await adminInstances.adminDb.collection('students').doc(uid).get();
-    if (studentDoc.exists) {
-      const studentData = studentDoc.data() as any;
-      if (
-        !hasStudentRole(studentData) ||
-        (studentData.uid && studentData.uid !== uid) ||
-        String(studentData.email || '').trim().toLowerCase() !== String(email || '').trim().toLowerCase()
-      ) {
-        return { valid: false, status: 403, error: 'Forbidden: Student account does not match its provisioned profile.' };
-      }
-      if (!isStudentAccountActive(studentData)) {
-        return { valid: false, status: 403, error: 'Forbidden: Student account has been deactivated.' };
-      }
-      if (requiredRole && requiredRole !== 'STUDENT') {
-        return { valid: false, status: 403, error: 'Forbidden: Student accounts cannot access staff resources.' };
-      }
-      return { valid: true, status: 200, uid, email, role: 'STUDENT' };
-    }
-
-    return { valid: false, status: 403, error: 'Forbidden: No authorized HackHub profile is linked to this account.' };
-  } catch (err: any) {
-    return {
-      valid: false,
-      status: 401,
-      error: err.code === 'auth/id-token-expired'
-        ? 'Session expired. Please log in again.'
-        : 'Invalid authentication credentials.'
-    };
-  }
 }
 
 export const SUPPORTED_STUDENT_DEPARTMENTS = ['Biotechnology', 'Biomedical Engineering'];
@@ -1845,8 +1401,9 @@ export default async function handler(req: any, res: any) {
       res.setHeader('X-Auth-Init-Reason', 'ENVIRONMENT_VARIABLE_MISSING');
     }
 
-    if (lastInitError) {
-      res.setHeader('X-Auth-Init-Error', lastInitError.replace(/[\r\n]/g, ' '));
+    const initStatus = getAdminInitStatus();
+    if (initStatus.error) {
+      res.setHeader('X-Auth-Init-Error', initStatus.error.replace(/[\r\n]/g, ' '));
     }
   }
 
