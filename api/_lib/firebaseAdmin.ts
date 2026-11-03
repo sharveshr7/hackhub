@@ -281,12 +281,6 @@ export async function getAdminInstances() {
               }
             }
             if (accessToken) {
-              const { OAuth2Client } = await import('google-auth-library');
-              const { Firestore } = await import('@google-cloud/firestore');
-              const authClient = new OAuth2Client();
-              authClient.setCredentials({ access_token: accessToken });
-              const directDb = new Firestore({ projectId: expectedProjectId, authClient });
-
               const customCredential = {
                 getAccessToken: async () => ({ access_token: accessToken, expires_in: 3600 })
               };
@@ -300,7 +294,7 @@ export async function getAdminInstances() {
 
               cachedAdminInstances = {
                 adminApp: app,
-                adminDb: directDb as any,
+                adminDb: getFirestore(app),
                 adminAuth: getAuth(app)
               };
               lastInitError = null;

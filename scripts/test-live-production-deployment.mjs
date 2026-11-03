@@ -29,7 +29,7 @@ async function run() {
     const homeRes = await fetch(`${PROD_BASE}/`);
     assert(homeRes.status === 200, `Homepage delivers HTTP 200 OK (got ${homeRes.status})`);
     const homeHtml = await homeRes.text();
-    assert(homeHtml.includes('<!DOCTYPE html>') && homeHtml.includes('HackHub'), 'Homepage delivers valid HTML with HackHub branding');
+    assert(homeHtml.toLowerCase().includes('<!doctype html>') && homeHtml.includes('HackHub'), 'Homepage delivers valid HTML with HackHub branding');
 
     // 2. Student Auth API Health Check
     console.log('\n2. Checking Production /api/student-auth Health Check...');
